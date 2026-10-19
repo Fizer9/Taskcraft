@@ -37,6 +37,9 @@ npm run dev
 | `src/storage` | сохранение в браузере и в секретный Gist |
 | `src/assets` | шифрование паролем и загрузка зашифрованных ассетов |
 | `scripts/mdx2gltf.py` | конвертер моделей WC3 (MDX Definitive Edition) в .glb |
+| `scripts/build-art.py` | готовит текстуры земли Лордерона и интерфейса людей |
+| `src/scene/terrain.ts` | земля из тайлов WC3 с переходами между типами |
+| `src/ui/skin.ts` | каменная консоль, рамки и иконки из игры поверх обычного интерфейса |
 | `scripts/encrypt-assets.mjs` | шифрует файлы WC3 перед коммитом |
 
 ## Сохранение в Gist
@@ -49,7 +52,7 @@ npm run dev
 
 ## Оригинальная графика WC3
 
-Файлы Blizzard никогда не попадают в репозиторий в открытом виде. Модели лежат в `assets-src/models/` (папка в `.gitignore`):
+Файлы Blizzard никогда не попадают в репозиторий в открытом виде. Модели, земля и интерфейс лежат в `assets-src/` (папка в `.gitignore`): `models/`, `terrain/`, `ui/`.
 
 - `npm run dev` берёт их оттуда напрямую, пароль не нужен;
 - для сайта их надо зашифровать: `npm run encrypt-assets -- "твой пароль"`. В `public/assets-enc/` появятся файлы с непонятными именами и зашифрованный манифест. Коммить только `public/assets-enc/`, без пароля на сайте не видно ни файлов, ни их имён.
@@ -65,6 +68,16 @@ python scripts/mdx2gltf.py work/war3.w3mod/_de.w3mod/units/human/footman/footman
 ```
 
 Для деревьев добавь `--replaceable 31=Doodads/Terrain/LordaeronTree/LordaeronTree`. Новое имя модели надо добавить в `MODEL_NAMES` в `src/scene/library.ts`.
+
+Земля и интерфейс (нужны выгруженные папки `terrainart` и `ui` из `_de.w3mod`):
+
+```
+python scripts/build-art.py --root work/war3.w3mod
+```
+
+После любых изменений в `assets-src/` снова запусти `npm run encrypt-assets` с тем же паролем.
+
+Выложить всё на сайт одной командой: `npm run publish -- "что поменялось"`. Она спросит пароль (не показывая его), проверит, что он тот же, что у сайта, зашифрует `assets-src/`, сделает commit и push.
 
 ## Публикация на GitHub Pages
 

@@ -16,6 +16,7 @@ import type { Project } from '../state/types';
 import type { ModelLibrary, ModelName } from './library';
 import type { ModelInstance } from './models';
 import * as P from './placeholders';
+import { Ground, type TerrainMap } from './terrain';
 
 export const BANNER_COLORS: Record<Project['kind'], string> = {
   work: '#2f6bff',
@@ -47,6 +48,7 @@ export class Base {
   private hpFill: Mesh | null = null;
   private fortressNode: TransformNode | null = null;
   private selection: Mesh;
+  private dirt: Mesh;
   /** Заглушки, которые заменяются моделями WC3, когда те загружены. */
   private swaps: { node: TransformNode; model: ModelName; scale: number; anim?: string }[] = [];
   private lib: ModelLibrary | null = null;
@@ -63,7 +65,7 @@ export class Base {
     const outward = Math.atan2(project.slot.x, project.slot.z);
     if (project.slot.x !== 0 || project.slot.z !== 0) this.root.rotation.y = outward + Math.PI;
 
-    const dirt = MeshBuilder.CreateDisc('dirt', { radius: 24, tessellation: 40 }, scene);
+    const dirt = (this.dirt = MeshBuilder.CreateDisc('dirt', { radius: 24, tessellation: 40 }, scene));
     dirt.rotation.x = Math.PI / 2;
     dirt.position.y = 0.03;
     dirt.material = P.mat(scene, '#6b5a3a');
@@ -204,6 +206,26 @@ export class Base {
     s.node.dispose();
     s.node = inst.root;
     this.swaps = this.swaps.filter((x) => x !== s);
+  }
+
+  /** Рисует землю базы на карте тайлов: утоптанная земля, дорожка к шахте, камень под крепостью. */
+  paintGround(map: TerrainMap) {
+    const w = (x: number, z: number) => Vector3.TransformCoordinates(new Vector3(x, 0, z), this.root.computeWorldMatrix(true));
+    const c = w(0, 0);
+    map.disc(Ground.DirtGrass, c.x, c.z, 25, 0.3);
+    map.disc(Ground.Dirt, c.x, c.z, 19, 0.3);
+    const mine = w(this.minePos.x, this.minePos.z);
+    map.disc(Ground.Rough, mine.x, mine.z, 8, 0.4);
+    map.path(Ground.Rough, mine.x, mine.z, c.x, c.z, 2.2);
+    const wood = w(this.treePos.x - 2, this.treePos.z + 3);
+    map.path(Ground.DirtGrass, wood.x, wood.z, c.x, c.z, 2);
+    if (this.fortressNode) {
+      const f = w(0, -48);
+      map.disc(Ground.Rough, f.x, f.z, 11, 0.4);
+      map.disc(Ground.Rock, f.x, f.z, 7, 0.4);
+    }
+    // Старый круг-заглушка больше не нужен.
+    this.dirt.setEnabled(false);
   }
 
   setSelected(on: boolean) {

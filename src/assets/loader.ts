@@ -62,3 +62,24 @@ export async function loadAsset(path: string): Promise<Uint8Array | null> {
   const blob = await fetchBytes(base + file);
   return blob ? decrypt(pass, blob) : null;
 }
+
+/**
+ * Файл WC3 из зашифрованных ассетов, а в режиме разработки ещё и открытый из assets-src/
+ * (vite отдаёт его напрямую, в сборку для сайта эта папка не попадает).
+ */
+export async function loadArt(path: string): Promise<Uint8Array | null> {
+  const bytes = await loadAsset(path).catch(() => null);
+  if (bytes || !import.meta.env.DEV) return bytes;
+  const res = await fetch(`${import.meta.env.BASE_URL}assets-src/${path}`).catch(() => null);
+  return res && isBinary(res) ? new Uint8Array(await res.arrayBuffer()) : null;
+}
+
+const MIME: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', glb: 'model/gltf-binary' };
+
+/** То же, что loadArt, но в виде адреса blob:, который можно поставить в CSS или <img>. */
+export async function artUrl(path: string): Promise<string | null> {
+  const bytes = await loadArt(path);
+  if (!bytes) return null;
+  const type = MIME[path.split('.').pop() ?? ''] ?? 'application/octet-stream';
+  return URL.createObjectURL(new Blob([bytes as BlobPart], { type }));
+}

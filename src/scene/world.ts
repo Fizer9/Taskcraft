@@ -26,6 +26,7 @@ import { Base } from './base';
 import { ModelLibrary, type ModelName } from './library';
 import type { ModelInstance } from './models';
 import * as P from './placeholders';
+import { Ground, TerrainMap, terrainMaterial } from './terrain';
 
 export const MAP_HALF = 200;
 
@@ -150,6 +151,22 @@ export class World {
       t.rotation.y = rnd() * Math.PI;
       this.forest.push({ node: t, scale });
     }
+  }
+
+  /** Земля Лордерона из тайлов WC3: базы на утоптанной земле, дороги к главной ратуше. */
+  async loadTerrain(): Promise<boolean> {
+    const map = new TerrainMap(MAP_HALF);
+    map.meadows();
+    for (const p of this.store.state.projects) {
+      if (p.slot.x || p.slot.z) map.path(Ground.Rough, 0, 0, p.slot.x, p.slot.z, 2.6);
+    }
+    for (const b of this.bases.values()) b.paintGround(map);
+    const mat = await terrainMaterial(this.scene, map);
+    if (!mat) return false;
+    const ground = this.scene.getMeshByName('ground')!;
+    ground.material?.dispose(true, true);
+    ground.material = mat;
+    return true;
   }
 
   /**

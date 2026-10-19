@@ -91,6 +91,7 @@ button {
 .res .lumber { background: linear-gradient(90deg, #5a3a1c, #9a6a3a 40%, #5a3a1c); }
 .res .food { background: radial-gradient(circle, #e0d29a, #8c7a3c); }
 .res.over { color: var(--red); }
+.res.sync { color: var(--muted); }
 .upkeep { color: var(--green); }
 .upkeep.low { color: #e3c22b; }
 .upkeep.high { color: var(--red); }
@@ -362,3 +363,176 @@ button {
   #clock { display: none; }
   #resources { gap: 10px; font-size: 13px; }
 }
+
+/* ---------- Оригинальные текстуры WC3 (ui/skin.ts включает body.wc3) ----------
+   Координаты в единицах картинки консоли (высота 1024, ширина 4316), --u — их размер на экране.
+   Верхняя полоса и консоль — две части одной картинки: верх прижат к верху экрана, низ к низу. */
+
+body.wc3 {
+  --u: calc(var(--s) * 1px);
+  --console-h: calc(600 * var(--u));
+}
+
+body.wc3 #topbar {
+  left: var(--x0);
+  right: auto;
+  width: calc(4316 * var(--u));
+  height: calc(190 * var(--u));
+  display: block;
+  padding: 0;
+  background: var(--art-console) top / 100% auto no-repeat;
+  border: 0;
+  box-shadow: none;
+  pointer-events: none;
+}
+body.wc3 #topbar .menu,
+body.wc3 #resources { display: contents; }
+
+/* Восемь окошек верхней полосы: слева меню и часы, справа ресурсы, как в игре. */
+body.wc3 #topbar .menu button,
+body.wc3 #clock,
+body.wc3 #resources > span {
+  position: absolute;
+  top: calc(10 * var(--u));
+  height: calc(76 * var(--u));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: calc(14 * var(--u));
+  padding: 0 calc(10 * var(--u));
+  font-size: max(11px, calc(30 * var(--u)));
+  white-space: nowrap;
+  overflow: hidden;
+  pointer-events: auto;
+  background: none;
+  border: 0;
+  box-shadow: none;
+  color: var(--gold-bright);
+  text-shadow: 0 1px 2px #000;
+}
+body.wc3 #topbar .menu button:hover { filter: none; color: #fff; }
+body.wc3 #topbar .menu button:nth-child(1) { left: calc(564 * var(--u)); width: calc(324 * var(--u)); }
+body.wc3 #topbar .menu button:nth-child(2) { left: calc(901 * var(--u)); width: calc(328 * var(--u)); }
+body.wc3 #clock { left: calc(1241 * var(--u)); width: calc(327 * var(--u)); color: var(--muted); }
+body.wc3 #resources > .sync { left: calc(1580 * var(--u)); width: calc(329 * var(--u)); }
+body.wc3 #resources > :nth-child(1) { left: calc(2389 * var(--u)); width: calc(311 * var(--u)); }
+body.wc3 #resources > :nth-child(2) { left: calc(2737 * var(--u)); width: calc(310 * var(--u)); }
+body.wc3 #resources > :nth-child(3) { left: calc(3085 * var(--u)); width: calc(310 * var(--u)); }
+body.wc3 #resources > :nth-child(4) { left: calc(3433 * var(--u)); width: calc(310 * var(--u)); }
+body.wc3 #resources .res { color: #fff; }
+body.wc3 #resources .res.over { color: var(--red); }
+body.wc3 .res i {
+  width: calc(54 * var(--u));
+  height: calc(54 * var(--u));
+  border: 0;
+  border-radius: 0;
+  background: center / contain no-repeat;
+}
+body.wc3 .res i.gold { background-image: var(--art-gold); }
+body.wc3 .res i.lumber { background-image: var(--art-lumber); }
+body.wc3 .res i.food { background-image: var(--art-supply); }
+
+/* Консоль: картинка снизу, под ней чёрная подложка там, где в картинке прозрачные арки
+   (портрет и описание), чтобы сквозь них не просвечивала карта. */
+body.wc3 #console {
+  left: var(--x0);
+  right: auto;
+  width: calc(4316 * var(--u));
+  height: calc(644 * var(--u));
+  display: block;
+  padding: 0;
+  border: 0;
+  box-shadow: none;
+  pointer-events: none;
+  background:
+    var(--art-console) bottom / 100% auto no-repeat,
+    linear-gradient(#000, #000) calc(1408 * var(--u)) calc(170 * var(--u)) / calc(305 * var(--u)) 100% no-repeat,
+    linear-gradient(#000, #000) calc(1750 * var(--u)) calc(150 * var(--u)) / calc(820 * var(--u)) 100% no-repeat;
+}
+body.wc3 #console > .frame {
+  position: absolute;
+  pointer-events: auto;
+  background: none;
+  border: 0;
+  outline: 0;
+  box-shadow: none;
+  border-radius: 0;
+  padding: 0;
+}
+body.wc3 .minimap-frame { left: calc(587 * var(--u)); top: calc(60 * var(--u)); width: calc(557 * var(--u)); height: calc(556 * var(--u)); }
+body.wc3 #minimap { width: 100%; height: 100%; }
+body.wc3 .portrait-frame {
+  left: calc(1414 * var(--u));
+  top: calc(196 * var(--u));
+  width: calc(293 * var(--u));
+  height: calc(440 * var(--u));
+  gap: calc(10 * var(--u));
+}
+body.wc3 #portrait { border: 0; font-size: calc(90 * var(--u)); }
+body.wc3 #hero-bars { display: flex; flex-direction: column; gap: calc(6 * var(--u)); }
+body.wc3 .bar { height: calc(40 * var(--u)); }
+body.wc3 .bar em { font-size: max(10px, calc(26 * var(--u))); line-height: calc(38 * var(--u)); }
+body.wc3 .info-frame {
+  left: calc(1790 * var(--u));
+  top: calc(205 * var(--u));
+  width: calc(745 * var(--u));
+  height: calc(425 * var(--u));
+  font-size: max(11px, calc(32 * var(--u)));
+}
+body.wc3 .info .timer { font-size: calc(60 * var(--u)); }
+body.wc3 .card-frame { left: calc(3015 * var(--u)); top: calc(110 * var(--u)); width: calc(686 * var(--u)); height: calc(510 * var(--u)); }
+body.wc3 #command-card { gap: calc(11 * var(--u)); }
+body.wc3 .cmd {
+  border: 0;
+  outline: 0;
+  background: radial-gradient(circle at 50% 40%, #3c3328, #0d0b08 75%);
+  font-size: calc(80 * var(--u));
+  box-shadow: inset 0 0 0 1px #000, inset 0 0 calc(18 * var(--u)) #000;
+}
+body.wc3 .cmd:hover { filter: none; box-shadow: inset 0 0 0 calc(4 * var(--u)) var(--gold), inset 0 0 calc(18 * var(--u)) #000; }
+body.wc3 .cmd .hk { font-size: max(9px, calc(26 * var(--u))); top: calc(4 * var(--u)); left: calc(8 * var(--u)); }
+body.wc3 .cmd.empty { background: none; box-shadow: none; }
+
+/* Окна, свитки и подсказки в каменных рамках WC3. */
+body.wc3 #side,
+body.wc3 .modal {
+  border: 24px solid transparent;
+  border-image: var(--art-menu-frame) 48 / 24px stretch;
+  border-radius: 0;
+  outline: 0;
+  background: var(--art-menu-bg) center / cover, rgba(10, 6, 14, 0.75);
+  background-clip: padding-box;
+}
+body.wc3 #side { top: calc(190 * var(--u) + 4px); bottom: calc(var(--console-h) + 8px); padding: 6px 8px; }
+body.wc3 #tooltip,
+body.wc3 #guard .banner {
+  border: 6px solid transparent;
+  border-image: var(--art-tooltip-frame) 6 / 6px stretch;
+  background: var(--art-tooltip-bg) center / 100% 100%, rgba(10, 6, 14, 0.8);
+  background-clip: padding-box;
+}
+body.wc3 .btn,
+body.wc3 .menu button.btn {
+  border: 10px solid transparent;
+  border-image: var(--art-button-frame) 24 / 10px stretch;
+  border-radius: 0;
+  padding: 0 10px;
+  background: var(--art-button-bg) center / cover;
+  background-clip: padding-box;
+  box-shadow: none;
+}
+body.wc3 .btn:hover { filter: none; background: var(--art-button-highlight) center / 100% 100%, var(--art-button-bg) center / cover; background-clip: padding-box; }
+body.wc3 .btn:active { border-image-source: var(--art-button-frame-down); }
+body.wc3 #side input,
+body.wc3 .modal input,
+body.wc3 .info select {
+  border: 8px solid transparent;
+  border-image: var(--art-editbox-frame) 24 / 8px stretch;
+  border-radius: 0;
+  background: rgba(0, 0, 0, 0.75);
+  background-clip: padding-box;
+  padding: 2px 4px;
+}
+body.wc3 #messages { left: max(330px, calc(var(--x0) + 700 * var(--u))); }
+body.wc3 #tooltip { right: max(12px, calc(100vw - var(--x0) - 3743 * var(--u))); }
+body.wc3 .info .row { flex-wrap: wrap; gap: 0 0.5em; }

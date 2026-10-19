@@ -5,6 +5,7 @@ import { loadLocal, Sync } from './storage/sync';
 import { World } from './scene/world';
 import { Hud } from './ui/hud';
 import { unlockOnStart } from './ui/modals';
+import { applySkin } from './ui/skin';
 
 const store = new Store(loadLocal() ?? undefined);
 const sync = new Sync(store);
@@ -20,7 +21,7 @@ window.setInterval(() => store.tick(), 1000);
 window.setInterval(() => world.applyLighting(), 60_000);
 
 // Модели WC3 грузятся после пароля: без него зашифрованные модели не прочитать.
-void unlockOnStart(sync).then(() => world.loadModels());
+void unlockOnStart(sync).then(() => Promise.all([applySkin(), world.loadTerrain(), world.loadModels()]));
 
 // Для отладки из консоли браузера.
 Object.assign(window, { taskcraft: { store, world, sync } });

@@ -221,7 +221,7 @@ export class Hud {
         `<span class="res" title="Дерево"><i class="lumber"></i>${Math.floor(s.resources.lumber)}</span>` +
         `<span class="res${used >= cap ? ' over' : ''}" title="Еда: задачи в работе"><i class="food"></i>${used}/${cap}</span>` +
         `<span class="upkeep ${upClass}">${up.label}</span>` +
-        `<span class="res" title="${esc(this.sync.error)}" style="color:var(--muted)">${syncLabel}</span>`,
+        `<span class="res sync" title="${esc(this.sync.error)}">${syncLabel}</span>`,
     );
     const now = new Date();
     setHtml($('clock'), `<b>${now.toTimeString().slice(0, 5)}</b> · ${SHIFT_NAMES[currentShift(s, now)]}`);

@@ -4,7 +4,7 @@
 // Если модели нет нигде, сцена остаётся на заглушках.
 
 import { TransformNode, type AssetContainer, type Scene } from '@babylonjs/core';
-import { loadAsset } from '../assets/loader';
+import { loadArt } from '../assets/loader';
 import { instantiate, loadContainer, type ModelInstance } from './models';
 
 export const MODEL_NAMES = [
@@ -26,14 +26,6 @@ export type ModelName = (typeof MODEL_NAMES)[number];
 /** Масштаб WC3 → мир игры: ратуша WC3 шириной ~450 единиц становится ~11. */
 export const WC3_SCALE = 0.025;
 
-async function devModel(name: string): Promise<string | null> {
-  if (!import.meta.env.DEV) return null;
-  const url = `${import.meta.env.BASE_URL}assets-src/models/${name}.glb`;
-  const res = await fetch(url, { method: 'HEAD' }).catch(() => null);
-  const type = res?.headers.get('content-type') ?? '';
-  return res && res.ok && !type.includes('text/html') ? url : null;
-}
-
 export class ModelLibrary {
   private containers = new Map<ModelName, AssetContainer>();
 
@@ -44,10 +36,9 @@ export class ModelLibrary {
     await Promise.all(
       MODEL_NAMES.map(async (name) => {
         try {
-          const bytes = await loadAsset(`models/${name}.glb`);
-          const source = bytes ?? (await devModel(name));
-          if (!source) return;
-          this.containers.set(name, await loadContainer(this.scene, name, source));
+          const bytes = await loadArt(`models/${name}.glb`);
+          if (!bytes) return;
+          this.containers.set(name, await loadContainer(this.scene, name, bytes));
         } catch (e) {
           console.warn('Не загрузилась модель', name, e);
         }
