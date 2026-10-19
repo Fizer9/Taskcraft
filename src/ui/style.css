@@ -1,0 +1,364 @@
+/* Интерфейс в духе консоли людей WC3: тёмный камень, золотая окантовка, жёлтый текст.
+   Когда появятся оригинальные текстуры консоли, они заменят градиенты в .frame и #console. */
+
+:root {
+  --gold: #c9a24a;
+  --gold-bright: #ffd34d;
+  --gold-dark: #6e5422;
+  --stone: #2b2722;
+  --stone-dark: #15130f;
+  --text: #f4e7c5;
+  --muted: #b8a983;
+  --green: #3fd14a;
+  --red: #e33b2b;
+  --mana: #3f6bff;
+  --console-h: 196px;
+  --font: Georgia, 'Times New Roman', serif;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: #000;
+  color: var(--text);
+  font: 14px/1.35 var(--font);
+  user-select: none;
+}
+
+#scene {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  outline: none;
+  display: block;
+}
+
+button {
+  font: inherit;
+  color: var(--gold-bright);
+  cursor: pointer;
+}
+
+/* ---------- Верхняя панель ---------- */
+
+#topbar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 10px;
+  background: linear-gradient(#3a332a, #1c1814);
+  border-bottom: 2px solid var(--gold-dark);
+  box-shadow: 0 2px 0 #000, 0 4px 12px rgba(0, 0, 0, 0.6);
+  z-index: 10;
+}
+
+.menu { display: flex; gap: 6px; }
+
+.menu button,
+.btn {
+  background: linear-gradient(#4a3f30, #231d16);
+  border: 1px solid var(--gold);
+  border-radius: 3px;
+  padding: 3px 12px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.15), 0 1px 0 #000;
+}
+
+.menu button:hover, .btn:hover { filter: brightness(1.25); }
+
+#clock { color: var(--muted); white-space: nowrap; }
+#clock b { color: var(--gold-bright); font-weight: normal; }
+
+#resources { display: flex; gap: 18px; white-space: nowrap; }
+.res { display: flex; align-items: center; gap: 6px; color: var(--text); }
+.res i {
+  width: 16px;
+  height: 16px;
+  display: inline-block;
+  border-radius: 3px;
+  border: 1px solid #000;
+}
+.res .gold { background: radial-gradient(circle at 35% 35%, #fff2a8, #e2a91f 60%, #7a5408); border-radius: 50%; }
+.res .lumber { background: linear-gradient(90deg, #5a3a1c, #9a6a3a 40%, #5a3a1c); }
+.res .food { background: radial-gradient(circle, #e0d29a, #8c7a3c); }
+.res.over { color: var(--red); }
+.upkeep { color: var(--green); }
+.upkeep.low { color: #e3c22b; }
+.upkeep.high { color: var(--red); }
+
+/* ---------- Боковая панель свитков ---------- */
+
+#side {
+  position: fixed;
+  top: 44px;
+  left: 10px;
+  bottom: calc(var(--console-h) + 10px);
+  width: 300px;
+  display: flex;
+  flex-direction: column;
+  padding: 10px;
+  background: rgba(20, 17, 13, 0.88);
+  border: 2px solid var(--gold-dark);
+  outline: 1px solid #000;
+  border-radius: 4px;
+  z-index: 5;
+}
+#side.hidden { display: none; }
+#side h2, .info h3 {
+  margin: 0 0 8px;
+  font-size: 17px;
+  font-weight: normal;
+  color: var(--gold-bright);
+  letter-spacing: 0.04em;
+}
+#side input, .info select, .modal input {
+  width: 100%;
+  font: inherit;
+  color: var(--text);
+  background: #0d0b08;
+  border: 1px solid var(--gold-dark);
+  border-radius: 3px;
+  padding: 5px 7px;
+}
+#side input:focus, .modal input:focus { outline: 1px solid var(--gold); }
+#side-list { overflow-y: auto; margin-top: 10px; flex: 1; padding-right: 4px; }
+.group-title { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; margin: 12px 0 4px; }
+.task {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 6px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  cursor: pointer;
+}
+.task:hover { background: rgba(201, 162, 74, 0.12); }
+.task.selected { border-color: var(--green); background: rgba(63, 209, 74, 0.08); }
+.task .lvl {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  border: 1px solid var(--gold-dark);
+  background: #1d1912;
+  color: var(--gold-bright);
+}
+.task .lvl.none { color: var(--muted); }
+.task .t { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.task .active { color: var(--green); font-size: 12px; }
+.empty { color: var(--muted); font-style: italic; font-size: 13px; }
+
+/* ---------- Нижняя консоль ---------- */
+
+#console {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: var(--console-h);
+  display: grid;
+  grid-template-columns: 196px 150px 1fr 236px;
+  gap: 8px;
+  padding: 8px;
+  background:
+    repeating-linear-gradient(45deg, rgba(255, 255, 255, 0.015) 0 6px, rgba(0, 0, 0, 0.03) 6px 12px),
+    linear-gradient(#3b342b, #1b1712);
+  border-top: 3px solid var(--gold-dark);
+  box-shadow: 0 -2px 0 #000, 0 -6px 18px rgba(0, 0, 0, 0.7);
+  z-index: 10;
+}
+
+.frame {
+  position: relative;
+  background: var(--stone-dark);
+  border: 2px solid var(--gold);
+  outline: 2px solid #000;
+  box-shadow: inset 0 0 0 2px #000, inset 0 0 18px rgba(0, 0, 0, 0.9);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.minimap-frame { display: grid; place-items: center; }
+#minimap { width: 176px; height: 176px; cursor: crosshair; image-rendering: pixelated; }
+
+.portrait-frame { display: flex; flex-direction: column; padding: 6px; gap: 6px; }
+#portrait {
+  flex: 1;
+  border: 1px solid #000;
+  background: radial-gradient(circle at 50% 40%, #6a6f7a, #22242a 70%);
+  display: grid;
+  place-items: center;
+  font-size: 34px;
+  color: var(--gold-bright);
+  text-shadow: 0 2px 4px #000;
+  cursor: pointer;
+}
+.bar {
+  position: relative;
+  height: 14px;
+  background: #050505;
+  border: 1px solid #000;
+}
+.bar > span { position: absolute; inset: 0 auto 0 0; }
+.bar.hp > span { background: linear-gradient(#5cf06a, #1c8a26); }
+.bar.mana > span { background: linear-gradient(#7fa0ff, #1d3cb8); }
+.bar.xp > span { background: linear-gradient(#c88cff, #6a2fb0); }
+.bar em {
+  position: relative;
+  display: block;
+  text-align: center;
+  font-size: 11px;
+  font-style: normal;
+  line-height: 12px;
+  color: #fff;
+  text-shadow: 0 1px 1px #000;
+}
+
+.info-frame { padding: 10px 14px; }
+.info { height: 100%; overflow: hidden; }
+.info .row { display: flex; gap: 10px; margin: 3px 0; color: var(--muted); }
+.info .row b { color: var(--text); font-weight: normal; }
+.info .timer { font-size: 22px; color: var(--gold-bright); font-variant-numeric: tabular-nums; }
+.info .bar { margin: 6px 0; max-width: 360px; }
+.info .levels { display: flex; gap: 6px; margin-top: 8px; }
+.info .levels .btn.on { border-color: var(--green); color: var(--green); }
+.info .stopped { color: var(--muted); }
+.info .working { color: var(--green); }
+
+/* Сетка команд 4×3, как в WC3. */
+.card-frame { padding: 6px; }
+#command-card {
+  height: 100%;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  grid-template-rows: repeat(3, 1fr);
+  gap: 4px;
+}
+.cmd {
+  position: relative;
+  border: 1px solid #000;
+  outline: 1px solid var(--gold-dark);
+  background: linear-gradient(145deg, #4b4234, #1b1711);
+  display: grid;
+  place-items: center;
+  font-size: 22px;
+  color: var(--gold-bright);
+  text-shadow: 0 2px 2px #000;
+  padding: 0;
+}
+.cmd:hover { outline-color: var(--gold-bright); filter: brightness(1.2); }
+.cmd:active { transform: translateY(1px); }
+.cmd.off { filter: grayscale(1) brightness(0.55); cursor: not-allowed; }
+.cmd .hk {
+  position: absolute;
+  top: 1px;
+  left: 3px;
+  font-size: 10px;
+  color: #fff;
+  text-shadow: 0 1px 1px #000;
+}
+.cmd.empty { background: #0c0a07; outline-color: #2a2216; cursor: default; }
+
+/* Подсказка как в WC3: заголовок, цена, описание. */
+#tooltip {
+  position: fixed;
+  right: 12px;
+  bottom: calc(var(--console-h) + 8px);
+  max-width: 320px;
+  padding: 8px 10px;
+  background: rgba(8, 7, 5, 0.95);
+  border: 1px solid var(--gold);
+  font-size: 13px;
+  display: none;
+  z-index: 20;
+  pointer-events: none;
+}
+#tooltip .title { color: var(--gold-bright); }
+#tooltip .hotkey { color: var(--gold-bright); }
+#tooltip .cost { color: var(--muted); margin: 2px 0 4px; }
+
+/* Сообщения поверх игры, как текст событий в WC3. */
+#messages {
+  position: fixed;
+  left: 330px;
+  bottom: calc(var(--console-h) + 14px);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  z-index: 6;
+  pointer-events: none;
+}
+.msg {
+  font-size: 15px;
+  text-shadow: 0 1px 2px #000, 0 0 6px #000;
+  animation: fade 7s forwards;
+}
+.msg.gold { color: var(--gold-bright); }
+.msg.warn { color: #ff6b4a; }
+.msg.win { color: #7dff7d; font-size: 17px; }
+@keyframes fade { 0%, 75% { opacity: 1; } 100% { opacity: 0; } }
+
+#guard {
+  position: fixed;
+  top: 56px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 8;
+}
+#guard .banner {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 8px 14px;
+  background: rgba(20, 17, 13, 0.92);
+  border: 1px solid var(--gold);
+}
+
+/* ---------- Модальные окна ---------- */
+
+#modal-root:empty { display: none; }
+#modal-root {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: grid;
+  place-items: center;
+  z-index: 30;
+}
+.modal {
+  width: min(460px, calc(100vw - 32px));
+  padding: 18px 20px;
+  background: linear-gradient(#2e2820, #15120e);
+  border: 2px solid var(--gold);
+  outline: 2px solid #000;
+  box-shadow: 0 10px 40px #000;
+}
+.modal h3 { margin: 0 0 12px; color: var(--gold-bright); font-weight: normal; font-size: 20px; }
+.modal label { display: block; margin: 10px 0 4px; color: var(--muted); font-size: 13px; }
+.modal .hint { color: var(--muted); font-size: 12px; margin-top: 4px; }
+.modal .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+.modal .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
+.modal .err { color: #ff6b4a; margin-top: 8px; min-height: 1em; }
+
+/* ---------- Узкие экраны ---------- */
+
+@media (max-width: 900px) {
+  :root { --console-h: 168px; }
+  #console { grid-template-columns: 0 0 1fr 180px; gap: 6px; padding: 6px; }
+  .minimap-frame, .portrait-frame { display: none; }
+  #side { width: calc(100vw - 20px); bottom: calc(var(--console-h) + 10px); }
+  #messages { left: 16px; }
+  #clock { display: none; }
+  #resources { gap: 10px; font-size: 13px; }
+}

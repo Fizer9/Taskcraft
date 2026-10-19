@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Taskcraft: просмотр моделей</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #111; color: #f4e7c5; font: 14px Georgia, serif; overflow: hidden; }
+      canvas { width: 100%; height: 100%; display: block; }
+      #panel { position: fixed; top: 10px; left: 10px; max-height: calc(100% - 20px); overflow: auto; background: rgba(0,0,0,.7); padding: 8px; border: 1px solid #c9a24a; }
+      #panel button { display: block; width: 100%; margin: 2px 0; background: #2a241c; color: #ffd34d; border: 1px solid #6e5422; text-align: left; cursor: pointer; }
+      #panel button.on { border-color: #3fd14a; }
+    </style>
+  </head>
+  <body>
+    <canvas id="c"></canvas>
+    <div id="panel"></div>
+    <script type="module" src="./src/viewer.ts"></script>
+  </body>
+</html>
