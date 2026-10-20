@@ -102,7 +102,7 @@ export function openSettings(store: Store, sync: Sync) {
     <input name="gistId" value="${esc(getGistId() ?? '')}" placeholder="Пусто: создать новый секретный гист">
     <label>Пароль</label>
     <input type="password" name="password" placeholder="Шифрует токен и открывает ассеты WC3">
-    <div class="hint">Пароль нигде не сохраняется. Его нужно будет вводить при каждом запуске.</div>
+    <div class="hint">${rememberedPassword() ? 'Пароль запомнен в этом браузере, вход без ввода. <span class="group-btn" data-a="forget">Забыть</span>' : 'Пароль не сохраняется. Его нужно вводить при запуске, если не поставить «Запомнить» на входе.'}</div>
     <div class="err"></div>
     <div class="actions">
       <button class="btn" data-a="reset" style="margin-right:auto">Новая игра</button>
@@ -145,6 +145,10 @@ export function openSettings(store: Store, sync: Sync) {
     }
   });
   root.querySelector('[data-a="cancel"]')!.addEventListener('click', close);
+  root.querySelector('[data-a="forget"]')?.addEventListener('click', (e) => {
+    forgetPassword();
+    (e.target as HTMLElement).parentElement!.textContent = 'Забыл. При следующем запуске игра спросит пароль.';
+  });
   root.querySelector('[data-a="disconnect"]')?.addEventListener('click', () => {
     forgetToken();
     sync.disconnect();
@@ -193,17 +197,76 @@ export function openSettings(store: Store, sync: Sync) {
  * Возвращается, когда игра готова. required: без верного пароля дальше не пустить
  * (так работает опубликованный сайт; при разработке можно войти и без пароля).
  */
+/** «Запомнить» на входе: пароль лежит открытым текстом в localStorage этого браузера. */
+const REMEMBER_KEY = 'taskcraft-remember';
+
+export function rememberedPassword(): string | null {
+  try {
+    return localStorage.getItem(REMEMBER_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function forgetPassword() {
+  try {
+    localStorage.removeItem(REMEMBER_KEY);
+  } catch {
+    /* хранилище недоступно: и так ничего не запомнено */
+  }
+}
+
+function rememberPassword(pass: string) {
+  try {
+    localStorage.setItem(REMEMBER_KEY, pass);
+  } catch {
+    /* приватное окно: просто спросим в следующий раз */
+  }
+}
+
 export async function unlockOnStart(sync: Sync, required = false): Promise<void> {
   const needToken = hasStoredToken();
   const needAssets = await encryptedAssetsAvailable();
   if (!needToken && !needAssets) return;
   const what = [needToken && 'сохранение из Gist', needAssets && 'графику WC3'].filter(Boolean).join(' и ');
 
+  // Проверяет пароль, открывает токен и подключает Gist. Ошибка значит «не пустили».
+  const unlock = async (pass: string) => {
+    if (needAssets && !(await checkAssetPassword(pass))) throw new Error('Неверный пароль.');
+    const token = needToken
+      ? await loadToken(pass).catch(() => {
+          throw new Error('Неверный пароль.');
+        })
+      : null;
+    setPassword(pass);
+    // Без сети Gist недоступен: игра идёт из локального сохранения, а синхронизация
+    // догонит, когда сеть вернётся. Неверный токен или чужой Gist по-прежнему ошибка.
+    if (token)
+      await sync
+        .connect(token, getGistId())
+        .then(setGistId)
+        .catch((ex) => {
+          if (navigator.onLine && !(ex instanceof TypeError)) throw ex;
+        });
+  };
+
+  // Запомненный пароль пробуем молча. Если его сменили, забываем и спрашиваем как обычно.
+  const saved = rememberedPassword();
+  if (saved) {
+    try {
+      await unlock(saved);
+      return;
+    } catch {
+      forgetPassword();
+    }
+  }
+
   await new Promise<void>((resolve) => {
     const { root, close } = openModal(`
       <h3>Taskcraft</h3>
       <div>${required ? 'Вход только по паролю.' : `Введи пароль, чтобы открыть ${what}.`}</div>
-      <form><label>Пароль</label><input type="password" name="password" autofocus>
+      <form><label>Пароль</label><input type="password" name="password" autocomplete="current-password" autofocus>
+      <label class="check"><input type="checkbox" name="remember" checked> Запомнить на этом устройстве</label>
       <div class="err"></div>
       <div class="actions">
         ${required ? '' : '<button type="button" class="btn" data-a="skip">Без пароля</button>'}
@@ -221,20 +284,8 @@ export async function unlockOnStart(sync: Sync, required = false): Promise<void>
       const pass = (form.elements.namedItem('password') as HTMLInputElement).value;
       err.textContent = 'Проверяю…';
       try {
-        if (needAssets && !(await checkAssetPassword(pass))) throw new Error('Неверный пароль.');
-        const token = needToken ? await loadToken(pass).catch(() => {
-          throw new Error('Неверный пароль.');
-        }) : null;
-        setPassword(pass);
-        // Без сети Gist недоступен: игра идёт из локального сохранения, а синхронизация
-        // догонит, когда сеть вернётся. Неверный токен или чужой Gist по-прежнему ошибка.
-        if (token)
-          await sync
-            .connect(token, getGistId())
-            .then(setGistId)
-            .catch((ex) => {
-              if (navigator.onLine && !(ex instanceof TypeError)) throw ex;
-            });
+        await unlock(pass);
+        if ((form.elements.namedItem('remember') as HTMLInputElement).checked) rememberPassword(pass);
         close();
         resolve();
       } catch (ex) {
