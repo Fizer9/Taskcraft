@@ -32,7 +32,7 @@ import { LAND_H, LAND_W, Lands, landSpots, type LandSpot } from './lands';
 import { ARCHIMONDE_LOOK, BossFx, DREADLORD_LOOK } from './boss';
 import { BUILDING_SPOTS } from './buildings';
 import { ModelLibrary, type ModelName } from './library';
-import { Pacer } from './pacer';
+import { MAX_SCALE, Pacer } from './pacer';
 import { turnTowards, type ModelInstance } from './models';
 import * as P from './placeholders';
 import { Ground, TerrainMap, terrainMaterial } from './terrain';
@@ -180,6 +180,7 @@ export class World {
       // На компьютере 3D рисуется в настоящих пикселях экрана (при масштабе Windows 125–150%
       // иначе картинка и надписи мыльные), но не больше чем вдвое.
       phone ? (weak ? 1.25 : 1) : 1 / Math.min(2, Math.max(1, window.devicePixelRatio || 1)),
+      phone ? MAX_SCALE : 1,
     );
     const poke = () => this.pacer.poke(performance.now());
     for (const ev of ['pointerdown', 'wheel', 'touchmove'] as const) canvas.addEventListener(ev, poke, { passive: true });
