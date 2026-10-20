@@ -11,6 +11,10 @@ export interface ModelInstance {
   play(name: string, loop?: boolean): void;
   /** Ищет первую анимацию, имя которой начинается с prefix ("Walk Gold"). */
   playLike(prefix: string, loop?: boolean): void;
+  /** Один раз проигрывает name (speed: во сколько раз быстрее) и переходит к next по кругу («Birth» → «Stand 1»). */
+  playThen(name: string, next: string, speed?: number): void;
+  /** Скорость текущей анимации: шаг подстраивается под скорость движения, чтобы ноги не скользили. */
+  setSpeed(ratio: number): void;
   dispose(): void;
 }
 
@@ -45,13 +49,13 @@ export function instantiate(container: AssetContainer): ModelInstance {
     }
   };
 
-  const play = (name: string, loop = true) => {
+  const play = (name: string, loop = true, speed = 1) => {
     const g = groups.get(name);
     if (!g || g === current) return;
     current?.stop();
     current = g;
     applyVisibility(name);
-    g.start(loop, 1, g.from, g.to);
+    g.start(loop, speed, g.from, g.to);
   };
 
   return {
@@ -62,10 +66,32 @@ export function instantiate(container: AssetContainer): ModelInstance {
       const name = [...groups.keys()].find((n) => n.toLowerCase().startsWith(prefix.toLowerCase()));
       if (name) play(name, loop);
     },
+    setSpeed(ratio) {
+      if (current && Math.abs(current.speedRatio - ratio) > 0.01) current.speedRatio = ratio;
+    },
+    playThen(name, next, speed = 1) {
+      const g = groups.get(name);
+      if (!g) return play(next);
+      play(name, false, speed);
+      g.onAnimationGroupEndObservable.addOnce(() => {
+        if (current === g) play(next);
+      });
+    },
     dispose() {
       entries.dispose();
     },
   };
+}
+
+/**
+ * Плавный поворот к углу target (рад/с rate) по кратчайшей дуге: юниты WC3 не
+ * разворачиваются мгновенно.
+ */
+export function turnTowards(node: TransformNode, target: number, dt: number, rate = 12) {
+  let d = target - node.rotation.y;
+  d = Math.atan2(Math.sin(d), Math.cos(d));
+  const step = rate * dt;
+  node.rotation.y = Math.abs(d) <= step ? target : node.rotation.y + Math.sign(d) * step;
 }
 
 export async function loadModel(scene: Scene, url: string): Promise<ModelInstance> {

@@ -2,8 +2,17 @@
 <html lang="ru">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Taskcraft</title>
+    <!-- Установка как приложение: значок на главный экран, окно без адресной строки. -->
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <meta name="theme-color" content="#1c1814" />
+    <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png" />
+    <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black" />
+    <meta name="apple-mobile-web-app-title" content="Taskcraft" />
     <link rel="stylesheet" href="./src/ui/style.css" />
   </head>
   <body>
@@ -21,8 +30,16 @@
     <aside id="side">
       <h2>Свитки</h2>
       <form id="new-scroll" autocomplete="off">
-        <input name="title" placeholder="Новый свиток, Enter" maxlength="200" />
+        <input name="title" placeholder="Новый свиток, Enter" maxlength="200" title="Можно сразу: #проект !уровень @завтра. Например: Купить продукты #cook !1 @пт" />
       </form>
+      <div id="side-filter">
+        <input id="filter-q" type="search" placeholder="Поиск по свиткам ( / )" maxlength="100" />
+        <div class="filter-row">
+          <select id="filter-project" title="Проект"></select>
+          <select id="filter-level" title="Уровень"></select>
+          <select id="filter-status" title="Статус"></select>
+        </div>
+      </div>
       <div id="side-list"></div>
     </aside>
 

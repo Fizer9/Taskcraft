@@ -74,7 +74,7 @@ export async function loadArt(path: string): Promise<Uint8Array | null> {
   return res && isBinary(res) ? new Uint8Array(await res.arrayBuffer()) : null;
 }
 
-const MIME: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', glb: 'model/gltf-binary' };
+const MIME: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', glb: 'model/gltf-binary', mp3: 'audio/mpeg' };
 
 /** То же, что loadArt, но в виде адреса blob:, который можно поставить в CSS или <img>. */
 export async function artUrl(path: string): Promise<string | null> {

@@ -120,6 +120,18 @@ def build_console(root, out):
     print('  консоль: слева %d, центр %d, справа %d (px исходника 1024 в высоту)' % (left, core_w, right))
 
 
+def build_selection(root, out):
+    """Круг выделения: в игре он хранится четвертью кольца, собираем целый, белый (цвет задаёт сцена)."""
+    q = load(root, 'ui/feedback/selectioncircleunit/selectioncircleunit_basecolor')
+    w, h = q.size
+    full = Image.new('RGBA', (w * 2, h * 2))
+    full.paste(q, (0, 0))
+    full.paste(q.transpose(Image.FLIP_LEFT_RIGHT), (w, 0))
+    full.paste(q.transpose(Image.FLIP_TOP_BOTTOM), (0, h))
+    full.paste(q.transpose(Image.ROTATE_180), (w, h))
+    save(full, os.path.join(out, 'ui', 'selection.png'))
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--root', default='work/war3.w3mod')
@@ -138,6 +150,7 @@ def main():
     for rel, name in FRAMES.items():
         save(build_frame(load(args.root, rel)), os.path.join(args.out, 'ui', name + '.png'))
     build_console(args.root, args.out)
+    build_selection(args.root, args.out)
 
 
 if __name__ == '__main__':

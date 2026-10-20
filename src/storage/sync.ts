@@ -48,6 +48,9 @@ export class Sync {
     });
     // Добыча идёт тиками без действий игрока, поэтому раз в 5 минут сохраняем и её.
     window.setInterval(() => this.scheduleGist(0), 5 * 60_000);
+    // Сеть вернулась: догоняем Gist тем, что накопилось без неё.
+    window.addEventListener('online', () => this.scheduleGist(0));
+    window.addEventListener('offline', () => this.gist && this.set('error', 'Нет сети'));
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'hidden') {
         saveLocal(this.store.state);

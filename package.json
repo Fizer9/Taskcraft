@@ -7,6 +7,8 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
+    "test": "node scripts/test.mjs",
+    "balance": "node scripts/balance.mjs",
     "encrypt-assets": "node scripts/encrypt-assets.mjs",
     "publish": "node scripts/publish.mjs"
   },

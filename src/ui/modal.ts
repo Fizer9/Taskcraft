@@ -1,8 +1,8 @@
 // Простое модальное окно в стиле игрового диалога.
 
-export function openModal(html: string): { root: HTMLElement; close: () => void } {
+export function openModal(html: string, cls = ''): { root: HTMLElement; close: () => void } {
   const host = document.getElementById('modal-root')!;
-  host.innerHTML = `<div class="modal">${html}</div>`;
+  host.innerHTML = `<div class="modal ${cls}">${html}</div>`;
   const root = host.firstElementChild as HTMLElement;
   const close = () => {
     host.innerHTML = '';
