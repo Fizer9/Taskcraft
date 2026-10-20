@@ -177,7 +177,9 @@ export class World {
       },
       phone,
       !navigator.webdriver,
-      phone && weak ? 1.25 : 1,
+      // На компьютере 3D рисуется в настоящих пикселях экрана (при масштабе Windows 125–150%
+      // иначе картинка и надписи мыльные), но не больше чем вдвое.
+      phone ? (weak ? 1.25 : 1) : 1 / Math.min(2, Math.max(1, window.devicePixelRatio || 1)),
     );
     const poke = () => this.pacer.poke(performance.now());
     for (const ev of ['pointerdown', 'wheel', 'touchmove'] as const) canvas.addEventListener(ev, poke, { passive: true });
@@ -388,6 +390,9 @@ export class World {
       this.keys.add(e.key.toLowerCase());
     });
     window.addEventListener('keyup', (e) => this.keys.delete(e.key.toLowerCase()));
+    // Щипок на тачпаде браузер понимает как Ctrl+колесо и увеличивает всю страницу,
+    // а интерфейс уезжает за края окна. В игре масштаб меняет только камера.
+    window.addEventListener('wheel', (e) => e.ctrlKey && e.preventDefault(), { passive: false });
     window.addEventListener('blur', () => this.keys.clear());
     this.canvas.addEventListener('mousemove', (e) => {
       this.mouse = { x: e.clientX, y: e.clientY, inside: true };

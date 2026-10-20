@@ -3,7 +3,7 @@
 // 2) в режиме разработки — открытые файлы assets-src/models/<имя>.glb (папка в .gitignore).
 // Если модели нет нигде, сцена остаётся на заглушках.
 
-import { TransformNode, type AssetContainer, type Scene } from '@babylonjs/core';
+import { PBRMaterial, TransformNode, type AssetContainer, type Scene } from '@babylonjs/core';
 import { loadArt } from '../assets/loader';
 import { instantiate, loadContainer, type ModelInstance } from './models';
 
@@ -67,7 +67,19 @@ export class ModelLibrary {
         try {
           const bytes = await loadArt(`models/${name}.glb`);
           if (!bytes) return;
-          this.containers.set(name, await loadContainer(this.scene, name, bytes));
+          const c = await loadContainer(this.scene, name, bytes);
+          // Хвоя ёлок по ORM-текстуре выходила металлической и гладкой и блестела белыми
+          // полосами. Делаем её матовой: без металла, шероховатость полная.
+          if (name.startsWith('lordaerontree')) {
+            for (const m of c.materials) {
+              if (m instanceof PBRMaterial) {
+                m.metallicTexture = null;
+                m.metallic = 0;
+                m.roughness = 1;
+              }
+            }
+          }
+          this.containers.set(name, c);
         } catch (e) {
           console.warn('Не загрузилась модель', name, e);
         }
