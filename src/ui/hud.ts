@@ -350,7 +350,7 @@ export class Hud {
       (id) => this.select({ kind: 'base', id }),
       (id) => {
         const p = store.project(id);
-        if (p) this.barracksDialog(p);
+        if (p) this.openBarracks(p);
       },
     );
     // Лобби закрылось: камера к первой цели новой игры.
@@ -754,9 +754,10 @@ export class Hud {
         e.preventDefault();
         cmd.run();
       } else if (key === 'Escape' && !cmd) {
-        // Esc на карте открывает меню, а в открытом меню закрывает его (modal.ts).
         e.preventDefault();
-        openSettings(this.store, this.sync);
+        // Из казармы Esc возвращает к базе, на карте открывает меню (закрывает его modal.ts).
+        if (this.sel.kind === 'base' && this.sel.building === 'barracks') this.select({ kind: 'base', id: this.sel.id });
+        else openSettings(this.store, this.sync);
       } else if (digit && !cmd && !e.altKey) {
         // Цифра без команды с такой клавишей вызывает группу.
         e.preventDefault();
@@ -839,53 +840,39 @@ export class Hud {
     this.store.setDue(t.id, due);
   }
 
-  /**
-   * Казарма базы, как в WC3: вписал дело, щёлкнул по юниту, и он нанят в этот проект.
-   * Окно не закрывается, чтобы нанять несколько подряд; Enter нанимает того же юнита.
-   */
-  private barracksDialog(p: Project) {
+  /** Казарма базы, как в WC3: на карточке только четыре юнита, щелчок по юниту нанимает его в этот проект. */
+  private openBarracks(p: Project) {
+    this.select({ kind: 'base', id: p.id, building: 'barracks' });
+  }
+
+  private barracksCommands(p: Project): Command[] {
     const UNIT_BTN: Record<Level, BtnIcon> = { 1: 'footman', 2: 'rifleman', 3: 'knight', 4: 'gryphonrider' };
-    let last: Level = 1;
+    return ([1, 2, 3, 4] as Level[]).map((l) => {
+      const locked = l > maxLevel(this.store.state);
+      return {
+        icon: UNIT_SHORT[l],
+        btn: UNIT_BTN[l],
+        hotkey: String(l),
+        title: `Нанять: ${UNITS[l].name}`,
+        text: locked ? 'Задачи 4 уровня ведут грифоны: нужно грифонье гнездо (замок).' : `${UNITS[l].hint}. Впиши дело, и юнит сразу встанет в казарму «${p.name}». +${BALANCE.hireLumber} дерева.`,
+        enabled: !locked && !p.capturedAt,
+        run: () => this.unitDialog(p, l),
+      };
+    });
+  }
+
+  /** Название задачи для нанятого юнита: одно поле, Enter нанимает, Esc отменяет. */
+  private unitDialog(p: Project, level: Level) {
     const { root, close } = openModal(
-      `<h3>Казарма: ${esc(p.name)}</h3>` +
-        `<label>Задача</label><input name="title" maxlength="200" placeholder="Что сделать, Enter или щелчок по юниту">` +
-        `<label>Срок, если есть</label><input type="date" name="due">` +
-        `<label>Юнит по размеру задачи</label><div class="hire-units">${([1, 2, 3, 4] as Level[])
-          .map((l) => {
-            const locked = l > maxLevel(this.store.state);
-            return (
-              `<button class="btn hire-unit${l === last ? ' on' : ''}" data-l="${l}"${locked ? ' disabled title="Нужно грифонье гнездо (замок)"' : ''}>` +
-              `<i class="hire-icon">${btnArt(UNIT_BTN[l])}<span class="glyph">${l}</span></i><b>${UNITS[l].name}</b><span>${locked ? 'нужно грифонье гнездо' : UNITS[l].hint}</span></button>`
-            );
-          })
-          .join('')}</div>` +
-        `<div class="hint hire-done"></div>` +
-        `<div class="actions"><button class="btn" data-a="cancel">Закрыть</button></div>`,
-      'wide',
+      `<h3>${UNITS[level].name}: ${esc(p.name)}</h3>` +
+        `<input name="title" maxlength="200" placeholder="Что сделать? Enter нанимает, Esc отмена">`,
     );
     const input = root.querySelector('[name="title"]') as HTMLInputElement;
-    const due = root.querySelector('[name="due"]') as HTMLInputElement;
-    const done = root.querySelector('.hire-done') as HTMLElement;
     input.focus();
-    const hire = (level: Level) => {
-      const title = input.value.trim();
-      if (!title) {
-        done.textContent = 'Сначала впиши задачу.';
-        input.focus();
-        return;
-      }
-      last = level;
-      root.querySelectorAll('[data-l]').forEach((x) => x.classList.toggle('on', Number((x as HTMLElement).dataset.l) === level));
-      const t = this.store.addTask(title, p.id, level);
-      if (due.value) this.store.setDue(t.id, due.value);
-      done.textContent = `Нанят ${UNITS[level].name.toLowerCase()}: «${title}». Можно нанять ещё.`;
-      input.value = '';
-      input.focus();
-    };
-    root.querySelectorAll<HTMLButtonElement>('[data-l]').forEach((b) => b.addEventListener('click', () => hire(Number(b.dataset.l) as Level)));
-    root.querySelector('[data-a="cancel"]')!.addEventListener('click', close);
     input.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') hire(last);
+      if (e.key !== 'Enter' || !input.value.trim()) return;
+      this.store.addTask(input.value, p.id, level);
+      close();
     });
   }
 
@@ -1554,9 +1541,9 @@ export class Hud {
         btn: 'footman',
         hotkey: 'Q',
         title: 'Нанять юнита',
-        text: `Новая задача сразу в казарму этой базы: впиши дело и выбери юнита по размеру. +${BALANCE.hireLumber} дерева за каждого.`,
+        text: `Открыть казарму этой базы: выбери юнита по размеру и впиши дело. +${BALANCE.hireLumber} дерева за каждого.`,
         enabled: !p.capturedAt,
-        run: () => this.barracksDialog(p),
+        run: () => this.openBarracks(p),
       },
       p.frozen ? thaw : {
         icon: '⚑',
@@ -2057,7 +2044,7 @@ export class Hud {
       cmds.push({ icon: '↩', btn: 'cancel', hotkey: 'Esc', title: 'Назад', text: 'Снять выделение и вернуться к базе.', run: () => this.select({ kind: 'base', id: sel.baseId }) });
     } else {
       const p = this.contextBase();
-      if (p) cmds = this.building && p.id === MAIN_HALL_ID ? this.buildCommands() : this.baseCommands(p);
+      if (p) cmds = sel.building === 'barracks' && !p.capturedAt ? this.barracksCommands(p) : this.building && p.id === MAIN_HALL_ID ? this.buildCommands() : this.baseCommands(p);
     }
     // WASD двигают камеру, поэтому у команд в этих клетках клавиш нет.
     for (const c of cmds) if (CAMERA_KEYS.includes(c.hotkey)) c.hotkey = '';
