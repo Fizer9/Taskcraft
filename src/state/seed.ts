@@ -1,4 +1,6 @@
-// Стартовые данные Игоря из дизайн-документа, раздел 3.
+// Стартовые данные Игоря из дизайн-документа, раздел 3. Новая игра начинается с одной
+// главной ратуши: проекты Игорь закладывает сам (окно «Проекты» в меню). Список из
+// документа остался для тестов и симуляции баланса.
 
 import { BALANCE } from './config';
 import { MAIN_HALL_ID, type GameState, type Project, type Sphere } from './types';
@@ -14,7 +16,7 @@ const spheres: Sphere[] = [
   { id: 'friends', name: 'Друзья', score: 7, target: 8 },
 ];
 
-const projectList: Array<[string, string, Project['kind']]> = [
+export const SAMPLE_PROJECTS: Array<[string, string, Project['kind']]> = [
   ['Dating', 'relations', 'personal'],
   ['Fullstack Sertification', 'career', 'work'],
   ['Джедайская академия', 'career', 'work'],
@@ -31,7 +33,8 @@ function slug(s: string): string {
   return s.toLowerCase().replace(/[^a-zа-я0-9]+/gi, '-').replace(/^-|-$/g, '');
 }
 
-export function createInitialState(now = Date.now()): GameState {
+/** samples: заложить базы проектов из документа (для тестов), иначе только главная ратуша. */
+export function createInitialState(now = Date.now(), samples = false): GameState {
   // Главная ратуша в центре, базы проектов по кругу от неё.
   const projects: Project[] = [
     {
@@ -45,8 +48,9 @@ export function createInitialState(now = Date.now()): GameState {
       frozen: false,
     },
   ];
-  projectList.forEach(([name, sphereId, kind], i) => {
-    const angle = (i / projectList.length) * Math.PI * 2;
+  const list = samples ? SAMPLE_PROJECTS : [];
+  list.forEach(([name, sphereId, kind], i) => {
+    const angle = (i / list.length) * Math.PI * 2;
     projects.push({
       id: slug(name),
       name,

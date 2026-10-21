@@ -22,12 +22,14 @@ import {
   Vector3,
 } from '@babylonjs/core';
 import { loadArt } from '../assets/loader';
+import { sounds } from '../audio/sound';
 import { avatarActive } from '../state/abilities';
 import { BALANCE, HERO_KINDS } from '../state/config';
 import { allDemons, unitHealth, activeDreadlord, activeTaskOf, currentShift, fortressSpot, demonRank, demonsAt, idleGuardTripped, isBlighted, localDay, meteorOf, miningFactor, portalSize, tuning, type Shift } from '../state/economy';
 import type { Store } from '../state/store';
 import { MAIN_HALL_ID, type BuildingId, type HeroKind, type Project } from '../state/types';
 import { Base } from './base';
+import { launch, shockwave, stormFlash } from './fx';
 import { LAND_H, LAND_W, Lands, landSpots, type LandSpot } from './lands';
 import { ARCHIMONDE_LOOK, BossFx, DREADLORD_LOOK } from './boss';
 import { BUILDING_SPOTS } from './buildings';
@@ -717,6 +719,11 @@ export class World {
     return [...this.bases.values()].flatMap((b) => b.units());
   }
 
+  /** Раны юнита задачи в бою у стен: 1 цел, меньше — ранен стражей врат. */
+  woundOf(taskId: string): number {
+    return this.units().find((u) => u.taskId === taskId)?.hp ?? 1;
+  }
+
   /**
    * Рамка мышью, как в WC3: зажал левую кнопку на карте и потянул, отпустил, и выбраны
    * все свои юниты внутри. Демоны Легиона в рамку не попадают.
@@ -827,9 +834,10 @@ export class World {
     const all = this.keys.has('alt');
     const s = this.store.state;
     const bars: Bar[] = [];
-    const unitBar = (u: { taskId: string; node: TransformNode; size: number; enemy?: boolean }) => {
+    // Здоровье юнита: срок задачи (чем ближе, тем меньше) и раны от стражи у стен.
+    const unitBar = (u: { taskId: string; node: TransformNode; size: number; enemy?: boolean; hp?: number }) => {
       const t = this.store.task(u.taskId);
-      bars.push({ node: u.node, lift: u.size + 0.8, health: u.enemy || !t ? 1 : unitHealth(t), width: 34 });
+      bars.push({ node: u.node, lift: u.size + 0.8, health: u.enemy || !t ? 1 : unitHealth(t) * (u.hp ?? 1), width: 34 });
     };
     const heroBar = () => bars.push({ node: this.heroNode, lift: 5, health: s.hero.mana / Math.max(1, s.hero.maxMana), width: 46 });
     const hallBar = (p: Project) => bars.push({ node: null, at: new Vector3(p.slot.x, 0, p.slot.z), lift: 11, health: 1 - (p.damage ?? 0) / 100, width: 90 });
@@ -978,6 +986,11 @@ export class World {
     this.archimonde.sync(hy && hy.hp > 0 ? { title: 'Архимонд', hp: hy.hp, maxHp: hy.maxHp, x: 0, z: 40 } : null);
     const today = localDay();
     const done = new Set(s.tasks.filter((t) => t.status === 'done').map((t) => t.id));
+    // Демон падает замертво, когда его задачу сделали, сняли или удалили; перенесённая задача уводит его без боя.
+    const fell = (id: string) => {
+      const t = this.store.task(id);
+      return !t || t.status === 'done' || t.status === 'cancelled';
+    };
     for (const p of s.projects) {
       const b = this.bases.get(p.id);
       if (!b) continue;
@@ -992,6 +1005,7 @@ export class World {
       b.setDemons(
         demons.slice(0, BALANCE.demonsShown).map((t) => ({ taskId: t.id, rank: demonRank(t, today) })),
         Math.max(0, demons.length - BALANCE.demonsShown),
+        fell,
       );
     }
     if (this.groundMap) {
@@ -1037,6 +1051,8 @@ export class World {
         this.heroModel.play(anim, false);
         this.heroAction = performance.now() + 1600;
       }
+      if (h.frog && h.frog.taskId !== frog) window.setTimeout(() => this.throwStormBolt(h.frog!.taskId), 450);
+      else if (h.clap && String(h.clap.until) !== clap) window.setTimeout(() => this.thunderClapFx(), 500);
     }
     this.spellSeen = spells;
     // Павший герой лежит там, где упал; воскрешённый встаёт у алтаря главной ратуши.
@@ -1051,6 +1067,29 @@ export class World {
         this.heroNode.position.copyFrom(this.heroTarget);
       }
     }
+  }
+
+  /**
+   * Молот бури: молот (модель stormboltmissile) летит от героя в юнита задачи-лягушки, а
+   * если юнита нет, в ворота крепости этой базы; в цели вспыхивают синие молнии.
+   */
+  private throwStormBolt(taskId: string) {
+    const from = this.heroNode.position.add(new Vector3(0, 3, 0));
+    const unit = this.units().find((u) => u.taskId === taskId);
+    const task = this.store.task(taskId);
+    const base = task?.projectId ? this.bases.get(task.projectId) : null;
+    const to = unit ? unit.node.getAbsolutePosition().add(new Vector3(0, 1.5, 0)) : base ? base.spot(new Vector3(0, 4, -43)) : from.add(new Vector3(0, -1, 14));
+    void sounds.spell('stormbolt');
+    launch(this.scene, this.lib, from, to, { model: 'stormboltmissile', speed: 40 }, () => {
+      stormFlash(this.scene, to);
+      void sounds.spell('stormbolthit');
+    });
+  }
+
+  /** Удар грома: от героя по земле расходится волна и пыль. */
+  private thunderClapFx() {
+    shockwave(this.scene, this.heroNode.position.clone(), 16);
+    void sounds.spell('thunderclap');
   }
 
   /** Новые, удалённые и изменённые проекты: базы закладываются и сносятся на ходу. */
@@ -1254,6 +1293,13 @@ export class World {
     // Стройка у главной ратуши идёт, пока тикает таймер работы героя (как в store.tick).
     const timer = !!activeTaskOf(s, s.hero.baseId) && !s.onBreak && !idleGuardTripped(s, now.getTime());
     this.bases.get(MAIN_HALL_ID)?.setBuildTimer(timer);
+    // Бой у стен слышно, только если камера рядом: громче всего вблизи и при приближении.
+    const t = this.camera.target;
+    const near = document.hidden ? 0 : Math.min(1, (CAMERA_DISTANCE * 1.5) / this.camera.radius);
+    for (const b of this.bases.values()) {
+      const at = b.spot(new Vector3(0, 0, -30));
+      b.audible = near * Math.max(0, Math.min(1, 1 - (Math.hypot(at.x - t.x, at.z - t.z) - 30) / 50));
+    }
     for (const p of s.projects) this.bases.get(p.id)?.update(dt, miningFactor(s, p, now), rate);
     this.dreadlord.update();
     this.archimonde.update();

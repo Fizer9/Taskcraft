@@ -106,9 +106,8 @@ export function openSettings(store: Store, sync: Sync) {
     <div class="err"></div>
     <div class="actions">
       <button class="btn" data-a="reset" style="margin-right:auto">Новая игра</button>
-      <button class="btn" data-action="new-project">Новый проект</button>
       <button class="btn" data-action="open-spheres">Сферы жизни</button>
-      <button class="btn" data-action="open-bases">Базы в игре</button>
+      <button class="btn" data-action="open-bases">Проекты</button>
       <button class="btn" data-action="open-council">Совет земель</button>
       <button class="btn" data-action="open-quests">Задания</button>
       <button class="btn" data-action="open-hall">Зал славы</button>

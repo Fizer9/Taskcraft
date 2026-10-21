@@ -29,9 +29,35 @@ const SFX = {
   collapseSmall: 'sound/collapse-small.mp3',
   place: 'sound/place.mp3',
   hammer: 'sound/hammer.mp3',
+  menuopen: 'sound/menuopen.mp3',
+  menuclose: 'sound/menuclose.mp3',
   explode: 'sound/explode.mp3',
+  defeat: 'sound/defeat.mp3',
 } as const;
 type Sfx = keyof typeof SFX;
+
+/**
+ * Звуки боя у стен, по три варианта (sound/combat/<вид><номер>.mp3): меч по плоти,
+ * меч и молот по камню врат, топор стража Скверны по юниту.
+ */
+export type Combat = 'sliceflesh' | 'bashstone' | 'chopflesh' | 'heavystone';
+/** Звуки способностей героя и снарядов: sound/spell/<имя>.mp3. */
+export type Spell = 'hammerlaunch' | 'stormbolt' | 'stormbolthit' | 'thunderclap';
+/** Боевых звуков не больше стольких в секунду: у стен бьются сразу несколько юнитов. */
+const COMBAT_PER_SECOND = 6;
+
+/**
+ * Демоны Легиона откликаются на щелчок рыком (sound/voice/<демон>what<n>.mp3), а если
+ * щёлкать часто, злятся. У стража Скверны и стража рока своих реплик в игре нет: оба рычат
+ * рыком стража рока. Умирая, демон воет: sound/death/<демон>.mp3.
+ */
+const DEMON_VOICES = {
+  felhound: { what: 1, yes: 2, pissed: 2 },
+  felguard: { what: 1, yes: 0, pissed: 0 },
+  doomguard: { what: 1, yes: 0, pissed: 0 },
+  infernal: { what: 3, yes: 0, pissed: 3 },
+} as const;
+export type Demon = keyof typeof DEMON_VOICES;
 
 const MUSIC = ['sound/human1.mp3', 'sound/human2.mp3', 'sound/human3.mp3'];
 
@@ -63,6 +89,7 @@ const CUES: Record<Cue, [Sfx, number][]> = {
   start: [['bash', 0]],
   complete: [['hit', 0.6], ['hit', 1.3], ['quest', 1.8]],
   fortress: [['gatefall', 1.5], ['victory', 2.5]],
+  defeat: [['defeat', 0.5]],
   level: [['goodjob', 0]],
   farm: [['build', 0]],
   dawn: [['rooster', 0]],
@@ -85,8 +112,9 @@ const WARNINGS: Partial<Record<Cue, { path: string; fallback?: [Voice, Line, num
   nogold: { path: 'sound/warning/nogold.mp3' },
   nolumber: { path: 'sound/warning/nolumber.mp3' },
   nofood: { path: 'sound/warning/nofood.mp3' },
-  // «Наш город атакован!»: ночью пришёл Легион.
+  // «Наш город атакован!»: ночью пришёл Легион или он захватил базу.
   legion: { path: 'sound/warning/townattack.mp3' },
+  defeat: { path: 'sound/warning/townattack.mp3' },
 };
 
 /** Звук выбора здания: sound/buildings/<здание>what.mp3; без файла звучит щелчок интерфейса. */
@@ -146,13 +174,16 @@ class SoundBoard {
   private started = false;
   private voice: HTMLAudioElement | null = null;
   private clicks = { key: '', count: 0, at: 0, pissed: 0 };
+  /** Отклик на щелчок по юниту или зданию, который звучит сейчас: пока он не кончился, новый не начинается. */
+  private picked: { audio: HTMLAudioElement | null; at: number } = { audio: null, at: 0 };
   private ambient = new Map<Ambient, HTMLAudioElement>();
   /** Сколько каждого фона сейчас нужно, 0..1 (без общей громкости). */
   private ambientMix: Record<Ambient, number> = { day: 0, night: 0, rain: 0, mill: 0, stream: 0 };
   private starting = new Set<HTMLAudioElement>();
   private lastHover = 0;
+  private combatAt: number[] = [];
   /** Кто-то заговорил: портрет героя в консоли шевелит губами (ui/portrait3d.ts). */
-  onTalk: (voice: Voice, seconds: number) => void = () => {};
+  onTalk: (voice: Voice | Demon, seconds: number) => void = () => {};
 
   private url(path: string): Promise<string | null> {
     let u = this.urls.get(path);
@@ -172,11 +203,83 @@ class SoundBoard {
     window.setTimeout(() => void a.play().catch(() => {}), delay * 1000);
   }
 
+  /** Удар в бою у стен: случайный из трёх вариантов; gain — насколько близко камера. */
+  combat(kind: Combat, gain = 1) {
+    const now = performance.now();
+    this.combatAt = this.combatAt.filter((t) => now - t < 1000);
+    if (this.combatAt.length >= COMBAT_PER_SECOND) return;
+    this.combatAt.push(now);
+    void this.playPath(`sound/combat/${kind}${1 + Math.floor(Math.random() * 3)}.mp3`, gain * 0.7);
+  }
+
+  /** Звук способности или снаряда. */
+  spell(name: Spell, gain = 1, delay = 0) {
+    return this.playPath(`sound/spell/${name}.mp3`, gain, delay);
+  }
+
+  /** Предсмертный вой демона Легиона. */
+  demonDeath(demon: Demon) {
+    return this.playPath(`sound/death/${demon}.mp3`, 0.9);
+  }
+
+  private async playPath(path: string, gain: number, delay = 0) {
+    if (this.volume.sfx <= 0 || gain <= 0) return;
+    const url = await this.url(path);
+    if (!url) return;
+    const a = new Audio(url);
+    a.volume = Math.min(1, this.volume.sfx * gain);
+    window.setTimeout(() => void a.play().catch(() => {}), delay * 1000);
+  }
+
+  /**
+   * Отклик на выбор ещё звучит? Пока файл грузится, тоже да. Реплика, которую оборвало
+   * событие игры, уже нет.
+   */
+  private pickBusy(): boolean {
+    const { audio, at } = this.picked;
+    const age = performance.now() - at;
+    if (!audio) return age < 1000;
+    return !audio.ended && !audio.error && !(audio.paused && audio.currentTime > 0) && age < 15_000;
+  }
+
+  /** Сыграть отклик на выбор, если прежний уже отзвучал. */
+  private async pickSound(start: () => Promise<HTMLAudioElement | null>) {
+    if (this.volume.sfx <= 0 || this.pickBusy()) return;
+    const picked = { audio: null as HTMLAudioElement | null, at: performance.now() };
+    this.picked = picked;
+    picked.audio = await start();
+    if (!picked.audio) picked.at = 0;
+  }
+
+  /** Отклик демона на щелчок: рык, а после частых щелчков злой рык. */
+  selectDemon(demon: Demon, key: string) {
+    const v = DEMON_VOICES[demon];
+    const c = this.clicks;
+    const now = performance.now();
+    c.count = c.key === key && now - c.at < 1500 ? c.count + 1 : 1;
+    c.key = key;
+    c.at = now;
+    if (this.pickBusy()) return;
+    let line = 'what';
+    let n = 1 + Math.floor(Math.random() * v.what);
+    if (c.count >= PISSED_AFTER && v.pissed) {
+      line = 'pissed';
+      n = (c.pissed++ % v.pissed) + 1;
+    } else if (v.yes && Math.random() < 0.5) {
+      line = 'yes';
+      n = 1 + Math.floor(Math.random() * v.yes);
+    }
+    void this.pickSound(async () => {
+      const url = await this.url(`sound/voice/${demon}${line}${n}.mp3`);
+      return url ? this.speak(url, 0, demon) : null;
+    });
+  }
+
   /** Реплика юнита. Говорит один голос за раз: новая реплика обрывает прежнюю, как в игре. */
-  async say(voice: Voice, line: Line, delay = 0, n = 1 + Math.floor(Math.random() * VOICES[voice][line])) {
-    if (this.volume.sfx <= 0) return;
+  async say(voice: Voice, line: Line, delay = 0, n = 1 + Math.floor(Math.random() * VOICES[voice][line])): Promise<HTMLAudioElement | null> {
+    if (this.volume.sfx <= 0) return null;
     const url = await this.url(`sound/voice/${voice}${line}${n}.mp3`);
-    if (url) this.speak(url, delay, voice);
+    return url ? this.speak(url, delay, voice) : null;
   }
 
   /** Предупреждение голосом советника; true, если файл нашёлся. */
@@ -195,35 +298,46 @@ class SoundBoard {
   }
 
   /** Щелчок по зданию на карте: ратуша, ферма, казарма, кузница и другие отвечают своим звуком. */
-  async selectBuilding(building = 'townhall') {
-    if (this.volume.sfx <= 0) return;
-    const url = (await this.url(buildingWhat(building))) ?? (await this.url(buildingWhat('townhall')));
-    if (!url) return void this.play('click');
-    const a = new Audio(url);
-    a.volume = this.volume.sfx;
-    void a.play().catch(() => {});
-  }
-
-  private speak(url: string, delay: number, voice?: Voice) {
-    window.setTimeout(() => {
-      this.voice?.pause();
+  selectBuilding(building = 'townhall') {
+    void this.pickSound(async () => {
+      const url = (await this.url(buildingWhat(building))) ?? (await this.url(buildingWhat('townhall')));
+      if (!url) {
+        void this.play('click');
+        return null;
+      }
       const a = new Audio(url);
       a.volume = this.volume.sfx;
-      this.voice = a;
-      if (voice) a.addEventListener('playing', () => this.onTalk(voice, a.duration || 2), { once: true });
       void a.play().catch(() => {});
-    }, delay * 1000);
+      return a;
+    });
   }
 
-  /** Отклик на выбор юнита. Если быстро щёлкать по одному и тому же, он ворчит по очереди всеми репликами. */
+  private speak(url: string, delay: number, voice?: Voice | Demon): HTMLAudioElement {
+    const a = new Audio(url);
+    a.volume = this.volume.sfx;
+    if (voice) a.addEventListener('playing', () => this.onTalk(voice, a.duration || 2), { once: true });
+    window.setTimeout(() => {
+      this.voice?.pause();
+      this.voice = a;
+      void a.play().catch(() => {});
+    }, delay * 1000);
+    return a;
+  }
+
+  /**
+   * Отклик на выбор юнита. Если быстро щёлкать по одному и тому же, он ворчит по очереди
+   * всеми репликами. Щелчки, пока он говорит, считаются, но реплику не перебивают.
+   */
   select(voice: Voice, key: string) {
     const c = this.clicks;
     const now = performance.now();
     c.count = c.key === key && now - c.at < 1500 ? c.count + 1 : 1;
     c.key = key;
     c.at = now;
-    if (c.count >= PISSED_AFTER) void this.say(voice, 'pissed', 0, (c.pissed++ % VOICES[voice].pissed) + 1);
-    else void this.say(voice, 'what');
+    if (this.pickBusy()) return;
+    void this.pickSound(() =>
+      c.count >= PISSED_AFTER ? this.say(voice, 'pissed', 0, (c.pissed++ % VOICES[voice].pissed) + 1) : this.say(voice, 'what'),
+    );
   }
 
   cue(cue: Cue, unit?: Level) {
@@ -235,8 +349,8 @@ class SoundBoard {
       void this.warn(w.path).then((found) => {
         if (!found && w.fallback) void this.say(...w.fallback);
       });
-    // Победный марш перекрывает музыку, она стихает и потом возвращается.
-    if (cue === 'fortress' && this.music) this.duck(12);
+    // Победный марш и тема поражения перекрывают музыку, она стихает и потом возвращается.
+    if ((cue === 'fortress' || cue === 'defeat') && this.music) this.duck(cue === 'defeat' ? 40 : 12);
   }
 
   /** Музыка людей по кругу, начиная со случайной темы. Браузер разрешает её только после клика. */

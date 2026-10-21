@@ -13,13 +13,15 @@ import {
   Vector3,
 } from '@babylonjs/core';
 import { loadArt } from '../assets/loader';
+import { sounds, type Combat } from '../audio/sound';
 import type { BuildingId, Project, Task, TechId } from '../state/types';
 import { BUILDING_SPOTS, MainBuildings, Riser } from './buildings';
 import type { ModelLibrary, ModelName } from './library';
 import { turnTowards, type ModelInstance } from './models';
 import * as P from './placeholders';
 import { Ground, type TerrainMap } from './terrain';
-import { Troops } from './troops';
+import { bloodSplash } from './fx';
+import { Troops, type Fighter } from './troops';
 import { Demons, type DemonView } from './legion';
 import { BlightFx } from './blight';
 import { Meteor } from './meteor';
@@ -80,7 +82,15 @@ const FARM_BIRTH = 6;
 /** Казарма в координатах базы и её дверь: новые юниты выходят оттуда к флагу сбора. */
 const BARRACKS = new Vector3(-13, 0, 9);
 /** Какой звук отклика у модели здания при щелчке (sound/buildings/<имя>what.mp3). */
-const SELECT_SOUND: Partial<Record<ModelName, string>> = { townhall: 'townhall', farm: 'farm', humanbarracks: 'barracks', altarofkings: 'altar' };
+const SELECT_SOUND: Partial<Record<ModelName, string>> = { townhall: 'townhall', farm: 'farm', humanbarracks: 'barracks', altarofkings: 'altar', goldmine: 'goldmine' };
+/**
+ * Стража врат бьёт юнитов у стен: гончие кусают, страж Скверны рубит топором. Урон
+ * снимает долю здоровья юнита (troops.ts), звук — удар по плоти.
+ */
+const GUARD_HIT: Record<'felhound' | 'felgaurd', { damage: number; sound: Combat }> = {
+  felhound: { damage: 0.05, sound: 'sliceflesh' },
+  felgaurd: { damage: 0.08, sound: 'chopflesh' },
+};
 /**
  * Скорость, под которую сделан шаг крестьянина: 190 единиц WC3 в секунду. Идёт быстрее
  * или медленнее, и анимация ускоряется или замедляется вместе с ним.
@@ -147,6 +157,9 @@ export class Base {
   private guards: ModelInstance[] = [];
   /** Посты стражи у врат (координаты крепости): сюда она возвращается после боя. */
   private guardPosts: Vector3[] = [];
+  /** Кто из стражи кто (гончая или страж Скверны) и сколько прошло от начала замаха. */
+  private guardKinds: ('felhound' | 'felgaurd')[] = [];
+  private guardSwing: number[] = [];
   private gate: ModelInstance | null = null;
   /** Враги у крепости по имени: под выбранным рисуется красный круг. */
   private foes = new Map<Foe, TransformNode>();
@@ -238,6 +251,7 @@ export class Base {
         : { rally: new Vector3(-18, 0, 15), door: BARRACKS.add(new Vector3(1.5, 0, 4.2)), fortress: new Vector3(0, 0, -48), route: [new Vector3(-8, 0, 4), new Vector3(-7, 0, -28)] },
       project.id,
     );
+    this.troops.hearing = () => this.audible;
 
     this.demons = new Demons(scene, this.root, project.id);
     this.blight = new BlightFx(scene, this.root);
@@ -318,7 +332,7 @@ export class Base {
     if (!lib || this.guards.length) return;
     const onMesh = this.onModelMesh;
     if (this.fortressNode) {
-      const posts: [ModelName, number, number, Foe][] = [
+      const posts: ['felhound' | 'felgaurd', number, number, Foe][] = [
         ['felhound', -5.5, 8, 'hound1'],
         ['felhound', 5.5, 8, 'hound2'],
         ['felgaurd', 0, 9, 'felguard'],
@@ -334,6 +348,8 @@ export class Base {
         });
         g.play('Stand 1');
         this.guards.push(g);
+        this.guardKinds.push(name);
+        this.guardSwing.push(0);
         this.guardPosts.push(new Vector3(x, 0, z));
         this.foes.set(foe, g.root);
       }
@@ -463,9 +479,12 @@ export class Base {
     this.troops.sync(tasks);
   }
 
-  /** Демоны Легиона у ратуши: сильнейшие по отдельности, остальные в лагере. */
-  setDemons(shown: DemonView[], extra: number) {
-    this.demons.sync(shown, extra);
+  /**
+   * Демоны Легиона у ратуши: сильнейшие по отдельности, остальные в лагере. fell: задача
+   * демона сделана или снята, и он не уходит, а падает замертво.
+   */
+  setDemons(shown: DemonView[], extra: number, fell: (taskId: string) => boolean) {
+    this.demons.sync(shown, extra, fell);
   }
 
   /** Метеор Инфернала над базой; если его задача выполнена, он сгорает в воздухе. */
@@ -596,14 +615,16 @@ export class Base {
 
   /**
    * Стража врат: каждый страж выбирает юнита у стен, подбегает к нему вплотную и рубит его,
-   * а когда бой кончился, возвращается на свой пост лицом к базе.
+   * а когда бой кончился, возвращается на свой пост лицом к базе. Удар приходится на
+   * середину замаха: брызги крови, звук по плоти, юнит теряет здоровье.
    */
-  private updateGuards(dt: number, fighters: Vector3[]) {
+  private updateGuards(dt: number, fighters: Fighter[]) {
     const origin = this.fortressNode?.position;
     if (!origin) return;
     this.guards.forEach((g, i) => {
       const post = this.guardPosts[i];
-      const target = fighters.length ? fighters[i % fighters.length].subtract(origin) : null;
+      const victim = fighters.length ? fighters[i % fighters.length] : null;
+      const target = victim ? victim.pos.subtract(origin) : null;
       // Встаёт в двух шагах от юнита со стороны врат; стражи обступают его веером, а не толпятся в одной точке.
       let goal = post;
       if (target) {
@@ -619,15 +640,37 @@ export class Base {
         pos.z += (d.z / dist) * step;
         turnTowards(g.root, Math.atan2(d.x, d.z), dt);
         g.play('Walk 1');
-      } else if (target) {
+      } else if (target && victim) {
         turnTowards(g.root, Math.atan2(target.x - pos.x, target.z - pos.z), dt);
         g.play('Attack 1');
+        this.guardStrike(g, i, victim, dt);
       } else {
         turnTowards(g.root, 0, dt);
         g.play('Stand Ready 1');
       }
     });
   }
+
+  private guardStrike(g: ModelInstance, i: number, victim: Fighter, dt: number) {
+    const period = g.duration('Attack 1') || 1.2;
+    const hitAt = period * 0.5;
+    const before = this.guardSwing[i];
+    let now = before + dt;
+    let hit = before < hitAt && now >= hitAt;
+    if (now >= period) {
+      now -= period;
+      hit ||= now >= hitAt;
+    }
+    this.guardSwing[i] = now;
+    if (!hit) return;
+    const kind = GUARD_HIT[this.guardKinds[i]];
+    this.troops.wound(victim.taskId, kind.damage);
+    bloodSplash(this.scene, this.spot(victim.pos.add(new Vector3(0, 1.4, 0))));
+    if (this.audible > 0) sounds.combat(kind.sound, this.audible);
+  }
+
+  /** Насколько громко слышно бой у этой базы: 1 рядом с камерой, 0 далеко. Задаёт мир каждый кадр. */
+  audible = 0;
 
   /** Узел врага у крепости и размер его круга выделения. */
   foe(foe: Foe): { node: TransformNode; size: number } | null {
@@ -695,6 +738,7 @@ export class Base {
   /** Точка, где стоит герой на этой базе, в мировых координатах. */
   /** Снести базу со сцены: проект удалён или перестроен. */
   dispose() {
+    this.troops.dispose();
     this.blight.set(false, 0);
     this.meteor.set(null, new Set());
     // Анимации и скелеты моделей живут в сцене отдельно от узлов: убираем их вместе с базой.
@@ -727,7 +771,7 @@ export class Base {
       this.pending.lumber += (rate.lumber * factor * dt) / 60;
     }
     this.troops.update(dt);
-    this.demons.update();
+    this.demons.update(dt);
     this.meteor.update(dt);
     // Пока у стен идёт бой, стража бросается на юнитов, а портал врат крутится быстрее.
     const battle = this.troops.inBattle();

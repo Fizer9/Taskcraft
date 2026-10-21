@@ -50,7 +50,7 @@ import { TECH, armorDelay, canRepeat, canSubtasks, maxLevel, squadLimit, techBlo
 import { MAIN_HALL_ID, type TechId, type AbilityId, type DayStats, type GameState, type Hero, type HeroKind, type Level, type Project, type BaseKind, type Repeat, type Sphere, type Task } from './types';
 
 /** Звук события: сцена и интерфейс подбирают к нему звук из WC3. */
-export type Cue = 'hire' | 'start' | 'complete' | 'fortress' | 'level' | 'farm' | 'dawn' | 'move' | 'warn' | 'legion' | 'spell' | 'jobdone' | 'nogold' | 'nolumber' | 'nofood';
+export type Cue = 'hire' | 'start' | 'complete' | 'fortress' | 'level' | 'farm' | 'dawn' | 'move' | 'warn' | 'legion' | 'defeat' | 'spell' | 'jobdone' | 'nogold' | 'nolumber' | 'nofood';
 /** unit: уровень юнита задачи, чтобы событие озвучил его голос. */
 export type GameEvent = { id: number; text: string; kind: 'info' | 'gold' | 'warn' | 'win'; cue?: Cue; unit?: Level };
 
@@ -1442,7 +1442,7 @@ export class Store {
       this.say(
         `Легион захватил базу «${p.name}»: ${demons.some((t) => demonRank(t, today) === 4) ? 'пришёл Инфернал' : `${demons.length} демонов у стен`}. Рабочие бежали в главную ратушу, здания в руинах. Разберись со всеми её демонами, чтобы отбить базу.`,
         'warn',
-        'legion',
+        'defeat',
       );
     }
     // Повелитель ужаса не дождался боя до конца месяца и уходит: без наказания и без награды.

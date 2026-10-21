@@ -12,6 +12,7 @@ import { showLoading } from './ui/loading';
 import { bindClickSound, sounds } from './audio/sound';
 import { currentShift } from './state/economy';
 import { watchSounds } from './audio/watch';
+import { watchOutcomes } from './ui/outcome';
 
 async function main() {
   const store = new Store(loadLocal() ?? undefined);
@@ -33,6 +34,7 @@ async function main() {
   store.onEvent((e) => e.cue && sounds.cue(e.cue, e.unit));
   bindClickSound();
   watchSounds(store, world);
+  watchOutcomes(store);
   world.sync();
 
   // Время идёт раз в секунду; первый тик догоняет время, пока вкладка была закрыта.

@@ -36,6 +36,10 @@ export const MODEL_NAMES = [
   'humantower',
   'gryphonaviary',
   'arcanevault',
+  // Эффекты боя: тело, разорванное на куски, молот грифона и Молот бури.
+  'humanlargedeathexplode',
+  'gryphonridermissile',
+  'stormboltmissile',
   // Мелочи на карте.
   'crates0',
   'crates1',
@@ -95,6 +99,9 @@ export const LATE_MODELS: readonly ModelName[] = [
   'humantower',
   'gryphonaviary',
   'arcanevault',
+  'humanlargedeathexplode',
+  'gryphonridermissile',
+  'stormboltmissile',
 ];
 
 /** Масштаб WC3 → мир игры: ратуша WC3 шириной ~450 единиц становится ~11. */

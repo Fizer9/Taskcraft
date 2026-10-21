@@ -1,7 +1,7 @@
 // Интерфейс поверх сцены: верхняя панель ресурсов, свитки, нижняя консоль
 // с миникартой, портретом, информацией и сеткой команд 4×3.
 
-import { sounds, UNIT_VOICE } from '../audio/sound';
+import { sounds, UNIT_VOICE, type Demon } from '../audio/sound';
 import { BALANCE, DEMONS, HERO_KINDS, UNITS } from '../state/config';
 import {
   activeTaskOf,
@@ -56,7 +56,7 @@ import { BANNER_COLORS } from '../scene/base';
 import { MAP_HALF, type World } from '../scene/world';
 import type { Sync } from '../storage/sync';
 import { openSettings } from './modals';
-import { ask, openModal } from './modal';
+import { ask, closeModal, openModal } from './modal';
 import { openPlanning, openSummary, openWeek } from './day';
 import { DEFAULT_FILTER, STATUS_NAMES, filterTasks, isDefaultFilter, type StatusFilter, type TaskFilter } from '../state/filter';
 import { ABILITIES, ABILITY_ORDER, SKILL, isMountainKing, avatarActive, canLearn, castBlock, clapActive, cooldownUntil, levelForNextRank, manaCost, rankOf, skillPoints } from '../state/abilities';
@@ -101,17 +101,22 @@ type Selection =
   | { kind: 'group'; ids: string[]; hero: boolean }
   | { kind: 'foe'; baseId: string; foe: Foe };
 
-/** Модель здания для портрета по имени здания из метаданных сцены. */
+/**
+ * Портрет здания по имени здания из метаданных сцены: модели портретов из игры
+ * (<здание>_portrait), здание крупным планом с камеры Portrait_Camera.
+ */
 const BUILDING_LOOK: Record<string, PortraitLook> = {
-  farm: { model: 'farm', anim: 'Stand 1' },
-  barracks: { model: 'humanbarracks', anim: 'Stand 1' },
-  altar: { model: 'altarofkings', anim: 'Stand 1' },
-  lumbermill: { model: 'humanlumbermill', anim: 'Stand 1' },
-  blacksmith: { model: 'blacksmith', anim: 'Stand 1' },
-  workshop: { model: 'workshop', anim: 'Stand 1' },
-  towers: { model: 'humantower', anim: 'Stand Upgrade First Ready Attack' },
-  aviary: { model: 'gryphonaviary', anim: 'Stand 1' },
-  vault: { model: 'arcanevault', anim: 'Stand 1' },
+  farm: { model: 'farm_portrait' },
+  barracks: { model: 'humanbarracks_portrait' },
+  altar: { model: 'altarofkings_portrait' },
+  lumbermill: { model: 'humanlumbermill_portrait' },
+  blacksmith: { model: 'blacksmith_portrait' },
+  workshop: { model: 'workshop_portrait' },
+  // В модели башни четыре вида: сторожевая — первое улучшение.
+  towers: { model: 'humantower_portrait', anim: 'Portrait Upgrade First' },
+  aviary: { model: 'gryphonaviary_portrait' },
+  vault: { model: 'arcanevault_portrait' },
+  goldmine: { model: 'goldmine_portrait' },
 };
 /** Модель портрета героя по классу; говорят все голосом Горного короля. */
 const HERO_PORTRAIT: Record<HeroKind, string> = {
@@ -122,12 +127,14 @@ const HERO_PORTRAIT: Record<HeroKind, string> = {
 };
 const UNIT_PORTRAIT: Record<Level, string> = { 1: 'footman_portrait', 2: 'rifleman_portrait', 3: 'knight_portrait', 4: 'gryphonrider_portrait' };
 const DEMON_PORTRAIT: Record<Level, string> = { 1: 'felhound_portrait', 2: 'felgaurd_portrait', 3: 'doomguard_portrait', 4: 'infernal_portrait' };
+/** Чьим рыком демон ступени отвечает на щелчок. */
+const DEMON_VOICE: Record<Level, Demon> = { 1: 'felhound', 2: 'felguard', 3: 'doomguard', 4: 'infernal' };
 /** Враги у крепости: имя, портрет и строка о том, кто это. */
 const FOES: Record<Foe, { name: string; portrait: PortraitLook; about: string }> = {
-  gate: { name: 'Врата демонов', portrait: { model: 'demongate', anim: 'Stand 1' }, about: 'Крепость Пылающего Легиона. Каждая сделанная задача проекта бьёт по ней, а когда здоровье кончится, врата рухнут и проект будет завершён.' },
-  hound1: { name: 'Гончая Скверны', portrait: { model: 'felhound_portrait' }, about: 'Стража врат. Бросается на юнитов, что бьются у стен.' },
-  hound2: { name: 'Гончая Скверны', portrait: { model: 'felhound_portrait' }, about: 'Стража врат. Бросается на юнитов, что бьются у стен.' },
-  felguard: { name: 'Страж Скверны', portrait: { model: 'felgaurd_portrait' }, about: 'Командир стражи врат. Рубит юнитов, что бьются у стен.' },
+  gate: { name: 'Врата демонов', portrait: { model: 'demongate_portrait', anim: 'Global Portrait Portrait' }, about: 'Крепость Пылающего Легиона. Каждая сделанная задача проекта бьёт по ней, а когда здоровье кончится, врата рухнут и проект будет завершён.' },
+  hound1: { name: 'Гончая Скверны', portrait: { model: 'felhound_portrait', voice: 'felhound' }, about: 'Стража врат. Бросается на юнитов, что бьются у стен.' },
+  hound2: { name: 'Гончая Скверны', portrait: { model: 'felhound_portrait', voice: 'felhound' }, about: 'Стража врат. Бросается на юнитов, что бьются у стен.' },
+  felguard: { name: 'Страж Скверны', portrait: { model: 'felgaurd_portrait', voice: 'felguard' }, about: 'Командир стражи врат. Рубит юнитов, что бьются у стен.' },
 };
 
 interface Command {
@@ -476,7 +483,12 @@ export class Hud {
       if (t?.level) sounds.select(UNIT_VOICE[t.level], t.id);
     } else if (sel.kind === 'task') {
       const t = this.store.task(sel.id);
-      if (t?.level && (t.status === 'hired' || t.status === 'active')) sounds.select(UNIT_VOICE[t.level], t.id);
+      if (t && isDemon(t)) sounds.selectDemon(DEMON_VOICE[demonRank(t)], t.id);
+      else if (t?.level && (t.status === 'hired' || t.status === 'active')) sounds.select(UNIT_VOICE[t.level], t.id);
+    } else if (sel.kind === 'foe') {
+      // Стража врат рычит, сами врата молчат, как здание без голоса.
+      const voice = FOES[sel.foe].portrait.voice as Demon | undefined;
+      if (voice) sounds.selectDemon(voice, `${sel.baseId}:${sel.foe}`);
     }
   }
 
@@ -641,7 +653,7 @@ export class Hud {
       // F9 открывает и закрывает журнал заданий, как в WC3.
       if (e.key === 'F9') {
         e.preventDefault();
-        if (modal.querySelector('.quests')) modal.innerHTML = '';
+        if (modal.querySelector('.quests')) closeModal();
         else if (!modal.childElementCount) openQuests(this.store);
         return;
       }
@@ -1135,7 +1147,7 @@ export class Hud {
       if (!t) return null;
       if (isDemon(t)) {
         const r = demonRank(t);
-        return { look: { model: DEMON_PORTRAIT[r] }, face: '☠', title: DEMONS[r].name };
+        return { look: { model: DEMON_PORTRAIT[r], voice: DEMON_VOICE[r] }, face: '☠', title: DEMONS[r].name };
       }
       if (!t.level) return { look: null, face: '📜', title: t.title };
       return { look: { model: UNIT_PORTRAIT[t.level], voice: UNIT_VOICE[t.level] }, face: UNIT_SHORT[t.level], title: UNITS[t.level].name };
@@ -1147,9 +1159,11 @@ export class Hud {
     const p = this.store.project(sel.id);
     const b = sel.building && BUILDING_LOOK[sel.building];
     if (b) return { look: b, face: '⚑', title: p?.name ?? '' };
-    // Ратуша: главная показывает свой тир, захваченная лежит в руинах.
-    const anim = p?.capturedAt ? 'Death 1' : sel.id === MAIN_HALL_ID ? ['Stand 1', 'Stand Upgrade First', 'Stand Upgrade Second'][tierOf(s) - 1] : 'Stand 1';
-    return { look: { model: 'townhall', anim }, face: '⚑', title: p?.name ?? '' };
+    // Ратуша: главная показывает свой тир (ратуша, крепость, замок), захваченная лежит в
+    // руинах: у портрета нет анимации смерти, поэтому руины — сама модель здания.
+    if (p?.capturedAt) return { look: { model: 'townhall', anim: 'Death 1' }, face: '⚑', title: p.name };
+    const anim = sel.id === MAIN_HALL_ID ? ['Portrait 1', 'Portrait Upgrade First', 'Portrait Upgrade Second'][tierOf(s) - 1] : 'Portrait 1';
+    return { look: { model: 'townhall_portrait', anim }, face: '⚑', title: p?.name ?? '' };
   }
 
   private renderPortrait() {
@@ -1229,7 +1243,7 @@ export class Hud {
     for (const id of ids) {
       const t = this.store.task(id);
       if (!t?.level) continue;
-      cells.push(groupCell(`data-action="select-task" data-id="${t.id}"`, UNIT_SHORT[t.level], `${UNITS[t.level].name}: ${t.title}`, unitHealth(t)));
+      cells.push(groupCell(`data-action="select-task" data-id="${t.id}"`, UNIT_SHORT[t.level], `${UNITS[t.level].name}: ${t.title}`, unitHealth(t) * this.world.woundOf(t.id)));
     }
     return `<h3>Выбрано: ${cells.length}</h3><div class="group-grid">${cells.join('')}</div>`;
   }

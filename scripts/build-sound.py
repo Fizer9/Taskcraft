@@ -37,8 +37,54 @@ SFX = {
     'collapse-small': 'sound/buildings/death/buildingdeathsmallhuman',
     'place': 'sound/buildings/shared/buildingplacement',
     'hammer': 'sound/buildings/shared/constructionloop1',
+    # каменная панель меню выезжает и уезжает
+    'menuopen': 'sound/interface/rightgluescreenpopup',
+    'menuclose': 'sound/interface/rightgluescreenpopdown',
     # предсмертный крик юнита, который разлетается на куски
     'explode': 'units/human/footman/footmandeath_hd',
+    # бой у стен: меч по плоти и по камню врат, топор стража Скверны по юниту
+    'combat/sliceflesh1': 'sound/units/combat/metalmediumsliceflesh1',
+    'combat/sliceflesh2': 'sound/units/combat/metalmediumsliceflesh2',
+    'combat/sliceflesh3': 'sound/units/combat/metalmediumsliceflesh3',
+    'combat/bashstone1': 'sound/units/combat/metalmediumbashstone1',
+    'combat/bashstone2': 'sound/units/combat/metalmediumbashstone2',
+    'combat/bashstone3': 'sound/units/combat/metalmediumbashstone3',
+    'combat/chopflesh1': 'sound/units/combat/metalheavychopflesh1',
+    'combat/chopflesh2': 'sound/units/combat/metalheavychopflesh2',
+    'combat/chopflesh3': 'sound/units/combat/metalheavychopflesh3',
+    'combat/heavystone1': 'sound/units/combat/metalheavybashstone1',
+    'combat/heavystone2': 'sound/units/combat/metalheavybashstone2',
+    'combat/heavystone3': 'sound/units/combat/metalheavybashstone3',
+}
+# Звуки способностей и снарядов (классические .ogg в _de.w3mod/abilities).
+SPELLS = {
+    'hammerlaunch': 'abilities/weapons/gryphonridermissile/gryphonridermissilelaunch1',
+    'stormbolt': 'abilities/spells/human/stormbolt/stormboltlaunch',
+    'stormbolthit': 'abilities/spells/human/stormbolt/thunderboltmissiledeath',
+    'thunderclap': 'abilities/spells/human/thunderclap/thunderclapcaster',
+}
+# Демоны Легиона (в корне выгрузки, units/demon): рык на щелчок и предсмертный вой.
+# У стража Скверны и стража рока своих реплик нет, оба рычат рыком стража рока.
+DEMON_VOICES = {
+    'felhoundwhat1': 'felhound/felhoundwhat1',
+    'felhoundyes1': 'felhound/felhoundyes1',
+    'felhoundyes2': 'felhound/felhoundyes2',
+    'felhoundpissed1': 'felhound/felhoundyesattack1',
+    'felhoundpissed2': 'felhound/felhoundyesattack2',
+    'felguardwhat1': 'doomguard/balrogattack1',
+    'doomguardwhat1': 'doomguard/balrogattack1',
+    'infernalwhat1': 'infernal/infernalwhat1',
+    'infernalwhat2': 'infernal/infernalwhat2',
+    'infernalwhat3': 'infernal/infernalwhat3',
+    'infernalpissed1': 'infernal/infernalpissed1',
+    'infernalpissed2': 'infernal/infernalpissed2',
+    'infernalpissed3': 'infernal/infernalpissed3',
+}
+DEMON_DEATHS = {
+    'felhound': 'felhound/felhounddeath1',
+    'felguard': 'felgaurd/felguarddeath1',
+    'doomguard': 'doomguard/doomguarddeath1',
+    'infernal': 'infernal/infernaldeath',
 }
 # Фон окружения: день и ночь Лордерона летом, дождь, мельница и ручей у баз.
 AMBIENT = {
@@ -52,6 +98,8 @@ MUSIC = {
     'human1': 'sound/music/mp3music/human1',
     'human2': 'sound/music/mp3music/human2',
     'human3': 'sound/music/mp3music/human3',
+    # Легион захватил базу
+    'defeat': 'sound/music/mp3music/humandefeat',
 }
 
 # Отклик зданий на щелчок: имя в игре → путь в корне выгрузки (классические .ogg, их нет в _de.w3mod).
@@ -68,6 +116,7 @@ BUILDINGS = {
     'towers': 'buildings/human/humantower/guardtowerwhat1',
     'aviary': 'buildings/human/gryphonaviary/gryphonaviarywhat1',
     'vault': 'buildings/human/arcanevault/arcanevaultwhat1',
+    'goldmine': 'buildings/other/goldmine/goldminewhat1',
 }
 # Голосовые предупреждения людей (_locales/<язык>.w3mod/sound/interface/warning/human).
 WARNINGS = {
@@ -123,6 +172,20 @@ def main():
             missing.append(os.path.join('_locales', args.lang + '.w3mod', 'sound', 'interface', 'warning', 'human', file))
             continue
         convert(src, os.path.join(args.out, 'sound', 'warning', name + '.mp3'), '64k', True)
+    for name, rel in SPELLS.items():
+        src = os.path.join(args.root, '_de.w3mod', rel + '.ogg')
+        if not os.path.exists(src):
+            missing.append(rel)
+            continue
+        convert(src, os.path.join(args.out, 'sound', 'spell', name + '.mp3'), '64k', True)
+    demons = os.path.join(args.root, 'units', 'demon')
+    for table, folder in ((DEMON_VOICES, 'voice'), (DEMON_DEATHS, 'death')):
+        for name, rel in table.items():
+            src = os.path.join(demons, rel + '.ogg')
+            if not os.path.exists(src):
+                missing.append(os.path.join('units', 'demon', rel))
+                continue
+            convert(src, os.path.join(args.out, 'sound', folder, name + '.mp3'), '48k', True)
     voices = os.path.join(args.root, '_locales', args.lang + '.w3mod', 'units', 'human')
     for unit in VOICES:
         folder = os.path.join(voices, unit)

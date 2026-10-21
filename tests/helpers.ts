@@ -18,7 +18,7 @@ export function advance(ms: number) {
 export function newGame(patch: (s: GameState) => void = () => {}): Store {
   mock.timers.reset();
   mock.timers.enable({ apis: ['Date'], now: NOON });
-  const s = createInitialState(NOON);
+  const s = createInitialState(NOON, true);
   s.lastLegionDay = TODAY;
   s.lastDawn = TODAY;
   s.tutorialDone = NOON;

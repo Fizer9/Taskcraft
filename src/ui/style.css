@@ -99,7 +99,9 @@ button {
 .bases-count { margin: 6px 0; }
 .bases-list { max-height: 52vh; overflow-y: auto; }
 .bases-sphere { margin: 10px 0 2px; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; }
-.bases-row { display: flex; gap: 6px; align-items: baseline; padding: 3px 0; }
+.bases-row { display: flex; gap: 6px; align-items: center; padding: 3px 0; }
+.modal .bases-row label.check { flex: 1; margin: 0; align-items: baseline; gap: 6px; }
+.modal .bases-row .project-edit { min-width: 0; padding: 0 8px; font-size: 13px; }
 .bases-row span { color: var(--muted); font-size: 12px; }
 .bases-row span.legion { color: #7dff5a; }
 .bases-count .legion { color: var(--red); }
@@ -358,9 +360,18 @@ button {
   box-shadow: 0 10px 40px #000;
 }
 .modal h3 { margin: 0 0 12px; color: var(--gold-bright); font-weight: normal; font-size: 20px; }
+/* Как меню WC3: панель выезжает сверху, затемнение проступает; закрываясь, уезжает обратно. */
+@keyframes modal-in { from { transform: translateY(-40vh); opacity: 0; } 70% { transform: translateY(1.5vh); opacity: 1; } to { transform: none; } }
+@keyframes modal-out { to { transform: translateY(-40vh); opacity: 0; } }
+@keyframes shade-in { from { background-color: rgba(0, 0, 0, 0); } }
+#modal-root:has(> .modal.opening) { animation: shade-in 0.3s ease-out; }
+.modal.opening { animation: modal-in 0.32s cubic-bezier(0.2, 0.8, 0.3, 1); }
+.modal.closing { animation: modal-out 0.16s ease-in forwards; pointer-events: none; }
+#modal-root.closing { background-color: rgba(0, 0, 0, 0); transition: background-color 0.16s; }
+@media (prefers-reduced-motion: reduce) { .modal.opening, .modal.closing, #modal-root:has(> .modal.opening) { animation: none; } }
 .modal label { display: block; margin: 10px 0 4px; color: var(--muted); font-size: 13px; }
 .modal .hint { color: var(--muted); font-size: 12px; margin-top: 4px; }
-.modal .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+.modal .actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 16px; }
 .modal .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
 .modal .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0 12px; }
 .modal select { width: 100%; }
@@ -941,6 +952,81 @@ body.kb .modal, body.kb .modal.wide { max-height: calc(100dvh - var(--kb-top) - 
   transition: width 0.25s ease;
 }
 .loading-text { color: var(--muted); font-size: 13px; }
+
+/* Картинка WC3 (горный король на пергаменте) на широком экране: сцена 4:3 по центру,
+   название над рамкой слева, щит в рамке карты, совет под ней, полоска внизу над узором. */
+@media (min-aspect-ratio: 1/1) {
+  #loading.art { padding: 0; justify-content: center; background: #000; }
+  #loading.art::before {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: min(100vw, 133.34vh);
+    aspect-ratio: 4 / 3;
+    transform: translate(-50%, -50%);
+    background: var(--loading-art) center / 100% 100% no-repeat;
+    animation: loading-in 0.6s ease;
+  }
+  #loading.art > * { position: absolute; z-index: 1; }
+  #loading.art .loading-title,
+  #loading.art .loading-sub,
+  #loading.art .loading-art,
+  #loading.art .loading-tip {
+    left: calc(50% - min(50vw, 66.67vh) + min(100vw, 133.34vh) * 0.17);
+    transform: translateX(-50%);
+    text-align: center;
+  }
+  #loading.art .loading-title { top: calc(50% - min(37.5vw, 50vh) + min(75vw, 100vh) * 0.09); font-size: min(5.2vw, 6.9vh); color: #3a1c06; text-shadow: 0 1px 0 rgba(255, 240, 200, 0.6); }
+  #loading.art .loading-sub { top: calc(50% - min(37.5vw, 50vh) + min(75vw, 100vh) * 0.2); margin: 0; color: #5a3a14; font-size: min(1.4vw, 1.9vh); white-space: nowrap; }
+  #loading.art .loading-art {
+    top: calc(50% - min(37.5vw, 50vh) + min(75vw, 100vh) * 0.3);
+    width: min(16vw, 21.3vh);
+    margin: 0;
+    animation: none;
+    filter: drop-shadow(0 4px 8px rgba(40, 20, 0, 0.6));
+  }
+  #loading.art .loading-bottom { position: static; margin: 0; }
+  #loading.art .loading-tip {
+    position: absolute;
+    top: calc(50% - min(37.5vw, 50vh) + min(75vw, 100vh) * 0.6);
+    width: min(28vw, 37.3vh);
+    color: #3a2410;
+    font-size: min(1.35vw, 1.8vh);
+    text-shadow: none;
+  }
+  #loading.art .loading-tip b { color: #7a1c06; }
+  #loading.art .loading-bar,
+  #loading.art .loading-text { position: absolute; left: 50%; transform: translateX(-50%); width: min(50vw, 66.7vh); }
+  #loading.art .loading-bar { bottom: calc(50% - min(37.5vw, 50vh) + min(75vw, 100vh) * 0.09); }
+  #loading.art .loading-text { bottom: calc(50% - min(37.5vw, 50vh) + min(75vw, 100vh) * 0.05); text-align: center; color: #d8c8a0; }
+}
+@keyframes loading-in { from { opacity: 0; } }
+
+/* ---------- Итог битвы (outcome.ts): победа и поражение во весь экран ---------- */
+#outcome {
+  position: fixed;
+  inset: 0;
+  z-index: 35;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 24px;
+  background: radial-gradient(ellipse at 50% 40%, rgba(40, 28, 10, 0.88) 0%, rgba(0, 0, 0, 0.94) 70%);
+  cursor: pointer;
+  animation: outcome-in 0.6s ease;
+  transition: opacity 0.4s ease;
+}
+#outcome.defeat { background: radial-gradient(ellipse at 50% 40%, rgba(50, 8, 4, 0.9) 0%, rgba(0, 0, 0, 0.95) 70%); }
+#outcome.gone { opacity: 0; }
+.outcome-art { width: min(56vh, 80vw); aspect-ratio: 1; background: center / contain no-repeat; filter: drop-shadow(0 10px 30px #000); }
+.outcome-title { font-size: clamp(40px, 8vh, 84px); color: var(--gold-bright); text-shadow: 0 0 24px rgba(255, 190, 60, 0.45), 0 3px 0 #5a3a0c, 0 6px 18px #000; }
+#outcome.defeat .outcome-title { color: #ff5a3a; text-shadow: 0 0 24px rgba(255, 60, 30, 0.45), 0 3px 0 #4a0c06, 0 6px 18px #000; }
+.outcome-text { max-width: 640px; text-align: center; line-height: 1.5; color: var(--text); }
+.outcome-hint { color: var(--muted); font-size: 13px; }
+@keyframes outcome-in { from { opacity: 0; transform: scale(1.04); } }
 
 /* ---------- Солнечные часы (hud.ts renderDial) ---------- */
 #daydial {

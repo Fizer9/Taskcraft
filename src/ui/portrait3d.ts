@@ -1,8 +1,8 @@
-// Портрет в консоли, как в WC3: в маленьком окне то, что сейчас выбрано. У юнитов, героев и
-// демонов это модель портрета (models/<юнит>_portrait.glb): голова моргает и оглядывается
-// (Portrait 1–N), а когда юнит говорит, шевелит губами (Portrait Talk). Камера стоит там же,
-// где камера Portrait_Camera в исходной модели (scripts/mdx2gltf.py кладёт её в extras сцены).
-// У зданий своих моделей портрета в проекте нет: показываем само здание, кадр по его габаритам.
+// Портрет в консоли, как в WC3: в маленьком окне то, что сейчас выбрано. У юнитов, героев,
+// демонов и зданий это модель портрета (models/<имя>_portrait.glb): голова моргает и
+// оглядывается (Portrait 1–N), а когда юнит говорит, шевелит губами (Portrait Talk). Камера
+// стоит там же, где камера Portrait_Camera в исходной модели (scripts/mdx2gltf.py кладёт её в
+// extras сцены). Если портрета нет (руины ратуши), показываем само здание, кадр по габаритам.
 
 import { Color3, Color4, DirectionalLight, Engine, HemisphericLight, PBRMaterial, Scene, TargetCamera, TransformNode, Vector3 } from '@babylonjs/core';
 import { loadArt } from '../assets/loader';
@@ -175,8 +175,9 @@ export class Portrait3D {
       this.nextIdle = 0;
     }
     // В тишине раз в несколько секунд другой взгляд, но чаще всего спокойный Portrait 1.
+    // Здание с заданной анимацией (ратуша-крепость-замок, сторожевая башня) так и стоит.
     const idle = c.entry.idle;
-    if (idle.length && !this.talkUntil && now > this.nextIdle) {
+    if (idle.length && !c.look.anim && !this.talkUntil && now > this.nextIdle) {
       this.nextIdle = now + 5000 + Math.random() * 5000;
       c.entry.model.play(Math.random() < 0.55 || idle.length < 2 ? idle[0] : idle[1 + Math.floor(Math.random() * (idle.length - 1))]);
     }

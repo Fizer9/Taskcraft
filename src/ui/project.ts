@@ -25,8 +25,11 @@ const KINDS: { kind: BaseKind; name: string; hint: string }[] = [
   { kind: 'any', name: 'В любое время', hint: 'одинаково в любую смену' },
 ];
 
-/** id null: новый проект. onDone получает id проекта или null, если он удалён. */
-export function openProject(store: Store, id: string | null, onDone: (id: string | null) => void = () => {}) {
+/**
+ * id null: новый проект. onDone получает id проекта или null, если он удалён; onCancel
+ * зовётся, если окно закрыли без изменений (из списка проектов возвращаемся в список).
+ */
+export function openProject(store: Store, id: string | null, onDone: (id: string | null) => void = () => {}, onCancel: () => void = () => {}) {
   const s = store.state;
   const p = id ? store.project(id) : undefined;
   const open = p ? s.tasks.filter((t) => t.projectId === p.id && isOpen(t)).length : 0;
@@ -80,7 +83,10 @@ export function openProject(store: Store, id: string | null, onDone: (id: string
   );
   hpInput.addEventListener('input', markHp);
   const err = root.querySelector('.err') as HTMLElement;
-  root.querySelector('[data-a="cancel"]')!.addEventListener('click', close);
+  root.querySelector('[data-a="cancel"]')!.addEventListener('click', () => {
+    close();
+    onCancel();
+  });
   root.querySelector('[data-a="ok"]')!.addEventListener('click', () => {
     if (!name.value.trim()) {
       err.textContent = 'Нужно название.';
@@ -112,7 +118,7 @@ export function openProject(store: Store, id: string | null, onDone: (id: string
         { label: 'Удалить', value: 'yes' },
       ],
     );
-    if (answer !== 'yes') return;
+    if (answer !== 'yes') return onCancel();
     store.deleteProject(p!.id);
     onDone(null);
   });

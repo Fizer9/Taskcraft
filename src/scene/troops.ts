@@ -1,10 +1,13 @@
 // Юниты задач на базе. Нанятый юнит (задача в казарме) стоит строем у казармы,
-// юнит задачи в работе уходит к крепости врага и бьётся у её стен, а когда задача
-// выполнена, он бросается на крепость, наносит удар, празднует победу и разлетается на
-// куски, как от выстрела катапульты. Распущенный юнит (задача отменена) взрывается сразу.
+// юнит задачи в работе уходит к крепости врага и бьётся у её стен: мечники высекают
+// искры из камня, стрелок стреляет, грифон мечет молоты. Стража врат ранит юнитов, а
+// на отдыхе у казармы (задача на паузе) раны затягиваются. Когда задача выполнена, юнит
+// бросается на крепость, наносит удар, празднует победу и разлетается на куски, как от
+// выстрела катапульты. Распущенный юнит (задача отменена) взрывается сразу.
 
 import { MeshBuilder, Scene, TransformNode, Vector3, type AbstractMesh } from '@babylonjs/core';
-import { sounds } from '../audio/sound';
+import { sounds, type Combat } from '../audio/sound';
+import { launch, sparks, type Shot } from './fx';
 import { explode } from './gibs';
 import type { Level, Task } from '../state/types';
 import type { ModelLibrary, ModelName } from './library';
@@ -22,6 +25,23 @@ const SPEED: Record<Level, number> = { 1: 6.75, 2: 6.75, 3: 8.75, 4: 6.25 };
 const FLY = 4.5;
 /** Больше юнитов на одной базе не рисуем, чтобы не загромождать карту. */
 const MAX_TROOPS = 12;
+/** Ниже этого раны не опускают здоровье: юнит задачи в работе не умирает у стен. */
+const MIN_HP = 0.2;
+/** Сколько здоровья в секунду возвращается на отдыхе у казармы. */
+const REGEN = 0.08;
+
+/**
+ * Чем юнит бьёт по вратам: мечники и рыцарь в ближнем бою (звук удара по камню),
+ * стрелок пулей, грифон молотом навесом (gryphonridermissile).
+ */
+const WEAPON: Record<Level, { sound: Combat | null; shot?: Shot; launch?: 'hammerlaunch' }> = {
+  1: { sound: 'bashstone' },
+  2: { sound: null, shot: { speed: 90 } },
+  3: { sound: 'heavystone' },
+  4: { sound: 'heavystone', shot: { model: 'gryphonridermissile', speed: 32, arc: 0.12 }, launch: 'hammerlaunch' },
+};
+/** Удар приходится на эту долю анимации атаки (замах до неё). */
+const HIT_AT = 0.45;
 
 type State = 'rally' | 'march' | 'fight' | 'charge' | 'victory';
 
@@ -36,6 +56,17 @@ interface Troop {
   /** Где юнит стоит, когда дошёл. */
   spot: Vector3;
   timer: number;
+  /** Здоровье в бою 0..1: стража ранит, отдых лечит. */
+  hp: number;
+  /** Время с начала текущей атаки, по нему выходят удары. */
+  swing: number;
+}
+
+/** Юнит у стен: стража выбирает его целью и бьёт по нему. */
+export interface Fighter {
+  taskId: string;
+  /** Позиция в координатах базы. */
+  pos: Vector3;
 }
 
 export interface TroopLayout {
@@ -55,6 +86,10 @@ export class Troops {
   private primed = false;
   private lib: ModelLibrary | null = null;
   private onMesh: (m: AbstractMesh) => void = () => {};
+  /** Снаряды в полёте: их убирают, если база снесена. */
+  private shots = new Set<() => void>();
+  /** Насколько громко слышно бой этой базы (0, если камера далеко), задаёт база. */
+  hearing: () => number = () => 1;
 
   constructor(
     private scene: Scene,
@@ -95,7 +130,7 @@ export class Troops {
       let tr = this.troops.get(task.id);
       if (!tr) tr = this.spawn(task, this.primed);
       const want: State = task.status === 'active' ? 'fight' : 'rally';
-      const spot = want === 'rally' ? this.rallySpot(rallyIdx++) : this.fightSpot(fightIdx++);
+      const spot = want === 'rally' ? this.rallySpot(rallyIdx++) : this.fightSpot(fightIdx++, task.level!);
       const goingThere = tr.state === want || (want === 'fight' && tr.state === 'march');
       if (!goingThere) {
         tr.state = want === 'fight' ? 'march' : 'rally';
@@ -113,12 +148,13 @@ export class Troops {
     return new Vector3(r.x + (i % 4) * 2.6, 0, r.z + Math.floor(i / 4) * 2.6);
   }
 
-  private fightSpot(i: number): Vector3 {
+  private fightSpot(i: number, level: Level): Vector3 {
     const f = this.layout.fortress;
     if (!f) return new Vector3(-6 + (i % 6) * 2.4, 0, 20 + Math.floor(i / 6) * 2.4);
-    // Полукругом перед крепостью, со стороны своей базы.
+    // Полукругом перед крепостью, со стороны своей базы: мечники и рыцари вплотную к
+    // ступеням врат, стрелки и грифоны стреляют издали.
     const a = ((i % 7) - 3) * 0.32;
-    const r = 13 + Math.floor(i / 7) * 2.5;
+    const r = (WEAPON[level].shot ? 15 : 10.5) + Math.floor(i / 7) * 2.5;
     return new Vector3(f.x + Math.sin(a) * r, 0, f.z + Math.cos(a) * r);
   }
 
@@ -128,7 +164,7 @@ export class Troops {
     root.parent = this.parent;
     const start = this.rallySpot(this.troops.size);
     root.position.copyFrom(fromDoor ? this.layout.door : start);
-    const tr: Troop = { taskId: task.id, level, root, model: null, state: 'rally', path: fromDoor ? [start] : [], spot: start, timer: 0 };
+    const tr: Troop = { taskId: task.id, level, root, model: null, state: 'rally', path: fromDoor ? [start] : [], spot: start, timer: 0, hp: 1, swing: 0 };
     this.dress(tr);
     this.troops.set(task.id, tr);
     return tr;
@@ -168,7 +204,7 @@ export class Troops {
 
   /** Юнит разлетается на куски: вспышка, клочья, лужа крови и предсмертный крик. */
   private blowUp(tr: Troop) {
-    explode(this.scene, this.parent, tr.root.position.clone());
+    explode(this.scene, this.parent, tr.root.position.clone(), this.lib);
     void sounds.play('explode');
     this.remove(tr);
   }
@@ -179,16 +215,28 @@ export class Troops {
     this.troops.delete(tr.taskId);
   }
 
-  /** Юниты на сцене (кроме уходящих победителей) для кругов и рамки выделения. */
+  /** Юниты на сцене (кроме уходящих победителей) для кругов, рамки выделения и полосок здоровья. */
   units(): UnitNode[] {
-    return [...this.troops.values()].filter((t) => t.state !== 'victory').map((t) => ({ taskId: t.taskId, node: t.root, size: t.level >= 3 ? 3.4 : 2.6 }));
+    return [...this.troops.values()].filter((t) => t.state !== 'victory').map((t) => ({ taskId: t.taskId, node: t.root, size: t.level >= 3 ? 3.4 : 2.6, hp: t.hp }));
   }
 
-  /** Где стоят юниты, которые дошли до крепости и бьются у её стен (координаты базы). */
-  fighters(): Vector3[] {
-    const out: Vector3[] = [];
-    for (const tr of this.troops.values()) if (!tr.path.length && (tr.state === 'fight' || tr.state === 'charge')) out.push(tr.root.position);
+  /** Юниты, которые дошли до крепости и бьются у её стен. */
+  fighters(): Fighter[] {
+    const out: Fighter[] = [];
+    for (const tr of this.troops.values()) if (!tr.path.length && (tr.state === 'fight' || tr.state === 'charge')) out.push({ taskId: tr.taskId, pos: tr.root.position });
     return out;
+  }
+
+  /** Стража попала по юниту: здоровье падает, но не ниже MIN_HP. */
+  wound(taskId: string, damage: number) {
+    const tr = this.troops.get(taskId);
+    if (tr) tr.hp = Math.max(MIN_HP, tr.hp - damage);
+  }
+
+  /** Снаряды в полёте больше не нужны: база снесена. */
+  dispose() {
+    for (const stop of this.shots) stop();
+    this.shots.clear();
   }
 
   /** Есть ли юниты, которые сейчас бьются у крепости. */
@@ -200,7 +248,9 @@ export class Troops {
   update(dt: number) {
     for (const tr of [...this.troops.values()]) {
       const m = tr.model;
+      if (tr.state === 'rally') tr.hp = Math.min(1, tr.hp + REGEN * dt);
       if (tr.path.length) {
+        tr.swing = 0;
         if (this.walk(tr, tr.path[0], dt)) tr.path.shift();
         m?.play('Walk 1');
         continue;
@@ -217,11 +267,13 @@ export class Troops {
           if (this.layout.fortress) {
             this.face(tr, this.layout.fortress);
             m?.play('Attack 1');
+            this.strike(tr, dt);
           } else this.playAny(m, 'Stand Ready', 'Stand 1');
           break;
         case 'charge':
           this.face(tr, this.layout.fortress!);
           m?.play('Attack 1');
+          this.strike(tr, dt);
           tr.timer -= dt;
           if (tr.timer <= 0) {
             tr.state = 'victory';
@@ -235,6 +287,48 @@ export class Troops {
           break;
       }
     }
+  }
+
+  /**
+   * Удары по вратам в такт анимации атаки: на середине замаха мечник высекает искры из
+   * камня, стрелок и грифон выпускают снаряд, который бьёт в стену, когда долетит.
+   */
+  private strike(tr: Troop, dt: number) {
+    const f = this.layout.fortress!;
+    const period = tr.model?.duration('Attack 1') || 1.3;
+    const hitAt = period * HIT_AT;
+    const before = tr.swing;
+    tr.swing += dt;
+    let hit = before < hitAt && tr.swing >= hitAt;
+    if (tr.swing >= period) {
+      tr.swing -= period;
+      hit ||= tr.swing >= hitAt;
+    }
+    if (!hit) return;
+    const w = WEAPON[tr.level];
+    const pos = tr.root.position;
+    const dir = new Vector3(f.x - pos.x, 0, f.z - pos.z).normalize();
+    const world = this.parent.computeWorldMatrix(true);
+    const toWorld = (v: Vector3) => Vector3.TransformCoordinates(v, world);
+    const gain = this.hearing();
+    if (!w.shot) {
+      // Меч бьёт по камню прямо перед юнитом.
+      sparks(this.scene, toWorld(pos.add(dir.scale(1.8)).add(new Vector3(0, 1.4, 0))));
+      if (gain > 0 && w.sound) sounds.combat(w.sound, gain);
+      return;
+    }
+    // Снаряд летит в стену врат, ближе к порталу, на высоте груди.
+    const from = toWorld(pos.add(dir.scale(1)).add(new Vector3(0, tr.level === 4 ? 1 : 1.7, 0)));
+    const wall = f.add(dir.scale(-5)).add(new Vector3((Math.random() - 0.5) * 3, 2.5 + Math.random() * 2, 0));
+    const to = toWorld(wall);
+    if (gain > 0 && w.launch) void sounds.spell(w.launch, gain);
+    const stop = launch(this.scene, this.lib, from, to, w.shot, () => {
+      this.shots.delete(stop);
+      sparks(this.scene, to, tr.level === 4);
+      const g = this.hearing();
+      if (g > 0 && w.sound) sounds.combat(w.sound, g);
+    });
+    this.shots.add(stop);
   }
 
   /** Анимация по началу имени, а если у модели такой нет, запасная (у грифона нет победы). */

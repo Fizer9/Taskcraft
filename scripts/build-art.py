@@ -260,6 +260,27 @@ def build_selection(root, out):
     save(full, os.path.join(out, 'ui', 'selection.png'))
 
 
+# Экран загрузки людей из сетевой игры: четыре куска 1024×768 (горный король на пергаменте).
+LOADING = 'ui/glues/loading/multiplayer/'
+# Картинки итогов боя: победа людей и поражение.
+SCORE_FILES = {
+    'ui/glues/scorescreen/scorescreen-humanvictory/scorescreen-humanvictory': 'score-victory',
+    'ui/glues/scorescreen/scorescreen-defeat/scorescreen-defeat': 'score-defeat',
+}
+
+
+def build_loading(root, out):
+    tl, tr = load(root, LOADING + 'loading-topleft'), load(root, LOADING + 'loading-human-topright')
+    bl, br = load(root, LOADING + 'loading-botleft'), load(root, LOADING + 'loading-human-botright')
+    im = Image.new('RGB', (tl.width + tr.width, tl.height + bl.height))
+    for part, xy in ((tl, (0, 0)), (tr, (tl.width, 0)), (bl, (0, tl.height)), (br, (bl.width, tl.height))):
+        im.paste(part.convert('RGB'), xy)
+    path = os.path.join(out, 'ui', 'loading-human.jpg')
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    im.save(path, quality=84, optimize=True)
+    print('  %s %dx%d' % (path, im.width, im.height))
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--root', default='work/war3.w3mod')
@@ -287,6 +308,9 @@ def main():
     step(lambda: build_selection(args.root, args.out))
     step(lambda: build_cursor(args.root, args.out))
     step(lambda: build_btn_atlas(args.root, args.out))
+    step(lambda: build_loading(args.root, args.out))
+    for rel, name in SCORE_FILES.items():
+        step(lambda: save(load(args.root, rel), os.path.join(args.out, 'ui', name + '.png')))
     if MISSING:
         print('Нет в выгрузке (пропущено): ' + ', '.join(MISSING), file=sys.stderr)
 

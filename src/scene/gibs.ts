@@ -1,8 +1,11 @@
-// Юнит разлетается на куски, как в WC3 от выстрела катапульты: вспышка, клочья мяса и доспехов
-// летят в стороны, падают и гаснут, на земле остаётся лужа крови. Модели взрыва из игры
-// (Objects/SpawnModels/Human/HumanLargeDeathExplode) в выгрузке пока нет, поэтому куски простые.
+// Юнит разлетается на куски, как в WC3 от выстрела катапульты: вспышка, и в стороны летят
+// руки, ноги, рёбра и требуха из модели игры Objects/SpawnModels/Human/HumanLargeDeathExplode.
+// Куски падают, лежат и уходят в землю, на земле остаётся лужа крови. Пока модель не
+// загружена, вместо неё летят простые клочья мяса и доспехов.
 
 import { Color3, Mesh, MeshBuilder, Scene, StandardMaterial, TransformNode, Vector3 } from '@babylonjs/core';
+import { bloodSplash } from './fx';
+import type { ModelLibrary } from './library';
 
 interface Gib {
   mesh: Mesh;
@@ -30,10 +33,14 @@ function mat(scene: Scene, color: string, glow = 0): StandardMaterial {
 /** Куски: мясо, кровь и цвет доспехов юнита (сталь и синий цвет игрока). */
 const FLESH = ['#8a1010', '#6a0c0c', '#b02020', '#5a2a1a'];
 
+/** Секунда Birth, к которой куски тела долетают до земли. */
+const LANDED = 0.8;
+
 /**
- * Взрыв в точке at (в координатах parent). armor: цвета доспехов. Всё убирает за собой само.
+ * Взрыв в точке at (в координатах parent). armor: цвета доспехов для простых клочьев,
+ * если модели взрыва нет. Всё убирает за собой само.
  */
-export function explode(scene: Scene, parent: TransformNode, at: Vector3, armor: string[] = ['#9aa3ad', '#2b52d9']) {
+export function explode(scene: Scene, parent: TransformNode, at: Vector3, lib: ModelLibrary | null, armor: string[] = ['#9aa3ad', '#2b52d9']) {
   const root = new TransformNode('gibs', scene);
   root.parent = parent;
   root.position.copyFrom(at);
@@ -58,9 +65,22 @@ export function explode(scene: Scene, parent: TransformNode, at: Vector3, armor:
   pool.scaling.setAll(0.2);
   pool.isPickable = false;
 
+  // Куски тела из игры. В WC3 их ловит земля, а в модели они падают дальше, до конца
+  // двухсекундной Birth, поэтому анимация замирает, когда куски долетают до земли: дальше
+  // они лежат и уходят в землю.
+  const body = lib?.create('humanlargedeathexplode', 1.4) ?? null;
+  if (body) {
+    body.root.parent = root;
+    body.root.position.y = -at.y;
+    body.root.rotation.y = Math.random() * Math.PI * 2;
+    body.root.getChildMeshes().forEach((m) => (m.isPickable = false));
+    body.play('Birth', false);
+    bloodSplash(scene, Vector3.TransformCoordinates(new Vector3(0, 1.2, 0), root.computeWorldMatrix(true)));
+  }
+
   const gibs: Gib[] = [];
   const colors = [...FLESH, ...FLESH, ...armor];
-  for (let i = 0; i < 18; i++) {
+  for (let i = 0; i < (body ? 0 : 18); i++) {
     const size = 0.25 + Math.random() * 0.45;
     const mesh =
       i % 3 === 0
@@ -101,12 +121,15 @@ export function explode(scene: Scene, parent: TransformNode, at: Vector3, armor:
         g.spin.scaleInPlace(0.4);
       }
     }
-    // Куски лежат пару секунд и тают, лужа держится дольше.
+    // Куски лежат пару секунд и тают (части тела уходят в землю, как трупы в WC3), лужа держится дольше.
     const fade = Math.max(0, 1 - Math.max(0, t - 3) / 1.5);
     for (const g of gibs) (g.mesh.material as StandardMaterial).alpha = fade;
+    if (body) body.root.position.y = -at.y - Math.max(0, t - 5) * 0.5;
+    if (body && t >= LANDED) body.setSpeed(0);
     poolMat.alpha = Math.max(0, 1 - Math.max(0, t - 5) / 3);
     if (t > 8) {
       scene.onBeforeRenderObservable.remove(observer);
+      body?.dispose();
       for (const m of root.getChildMeshes()) m.material?.dispose();
       root.dispose();
     }

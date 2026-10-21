@@ -24,6 +24,8 @@ export interface UnitNode {
   size: number;
   /** Демоны Легиона: рамкой их не выделить, как чужих юнитов в игре. */
   enemy?: boolean;
+  /** Здоровье в бою у стен 0..1 (раны от стражи врат), у остальных его нет. */
+  hp?: number;
 }
 
 export class SelectionFx {

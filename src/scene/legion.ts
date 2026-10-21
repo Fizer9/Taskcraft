@@ -1,5 +1,7 @@
 // Демоны Пылающего Легиона у базы: просроченные задачи стоят у ратуши и бьют по ней.
 // Сильнейшие видны по отдельности, остальные сведены в лагерь с числом над ним.
+// Когда задачу демона сделали, он воет и падает замертво (анимация Death), труп лежит
+// несколько секунд и уходит в землю, как в WC3.
 
 import {
   Color3,
@@ -12,6 +14,7 @@ import {
   Vector3,
   type AbstractMesh,
 } from '@babylonjs/core';
+import { sounds, type Demon as DemonVoice } from '../audio/sound';
 import type { Level } from '../state/types';
 import type { ModelLibrary, ModelName } from './library';
 import type { ModelInstance } from './models';
@@ -30,6 +33,11 @@ const LOOK: Record<Level, { model: ModelName | null; scale: number }> = {
 /** Места демонов у ратуши, со стороны врат (врата в 48 единицах за базой). */
 const SPOTS = [new Vector3(0, 0, -11), new Vector3(-9.5, 0, -6), new Vector3(9.5, 0, -6)];
 const CAMP = new Vector3(0, 0, -20);
+/** Чей вой звучит, когда демон этой ступени падает. */
+const DEATH_VOICE: Record<Level, DemonVoice> = { 1: 'felhound', 2: 'felguard', 3: 'doomguard', 4: 'infernal' };
+/** Сколько секунд труп лежит, прежде чем уйти в землю, и сколько уходит. */
+const CORPSE_LIE = 8;
+const CORPSE_SINK = 3;
 
 export interface DemonView {
   taskId: string;
@@ -41,8 +49,15 @@ interface Demon extends DemonView {
   model: ModelInstance | null;
 }
 
+interface Corpse {
+  root: TransformNode;
+  model: ModelInstance | null;
+  age: number;
+}
+
 export class Demons {
   private demons = new Map<string, Demon>();
+  private corpses: Corpse[] = [];
   private camp: TransformNode | null = null;
   private campCount = -1;
   private lib: ModelLibrary | null = null;
@@ -65,9 +80,10 @@ export class Demons {
     return [...this.demons.values()].map((d) => ({ taskId: d.taskId, node: d.root, size: d.rank >= 3 ? 4.2 : 3, enemy: true }));
   }
 
-  sync(shown: DemonView[], extra: number) {
+  /** fell: задача демона сделана или снята, тогда он не исчезает, а умирает. */
+  sync(shown: DemonView[], extra: number, fell: (taskId: string) => boolean = () => false) {
     const ids = new Set(shown.map((d) => d.taskId));
-    for (const d of [...this.demons.values()]) if (!ids.has(d.taskId)) this.remove(d);
+    for (const d of [...this.demons.values()]) if (!ids.has(d.taskId)) (fell(d.taskId) ? this.kill(d) : this.remove(d));
     shown.forEach((v, i) => {
       let d = this.demons.get(v.taskId);
       if (!d) {
@@ -118,6 +134,19 @@ export class Demons {
     this.demons.delete(d.taskId);
   }
 
+  /** Демон падает: анимация смерти, вой, а труп остаётся лежать и его нельзя выбрать. */
+  private kill(d: Demon) {
+    this.demons.delete(d.taskId);
+    d.root.getChildMeshes().forEach((m) => {
+      m.isPickable = false;
+      m.metadata = null;
+    });
+    if (d.model?.animations.includes('Death 1')) d.model.play('Death 1', false);
+    else if (d.model) d.model.playLike('Death', false);
+    void sounds.demonDeath(DEATH_VOICE[d.rank]);
+    this.corpses.push({ root: d.root, model: d.model, age: 0 });
+  }
+
   /** Лагерь Легиона: костёр Скверны и число демонов над ним. */
   private setCamp(extra: number) {
     if (extra === this.campCount) return;
@@ -143,10 +172,21 @@ export class Demons {
     label.position.y = 7;
   }
 
-  update() {
+  update(dt = 0) {
     // Модели демонов сами крутят анимацию атаки; заглушки чуть покачиваются.
     const t = performance.now() / 300;
     for (const d of this.demons.values()) if (!d.model) d.root.position.y = Math.abs(Math.sin(t + d.root.position.x)) * 0.2;
+    // Трупы лежат, потом уходят в землю; заглушка без анимации смерти просто ложится набок.
+    for (const c of [...this.corpses]) {
+      c.age += dt;
+      if (!c.model) c.root.rotation.z = Math.min(Math.PI / 2, c.age * 4);
+      if (c.age > CORPSE_LIE) c.root.position.y = -((c.age - CORPSE_LIE) / CORPSE_SINK) * 3;
+      if (c.age > CORPSE_LIE + CORPSE_SINK) {
+        c.model?.dispose();
+        c.root.dispose();
+        this.corpses.splice(this.corpses.indexOf(c), 1);
+      }
+    }
   }
 }
 

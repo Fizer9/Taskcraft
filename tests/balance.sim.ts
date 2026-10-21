@@ -43,7 +43,7 @@ globalThis.Date = SimDate as DateConstructor;
 
 const WORK = 'fullstack-sertification';
 const HOME = 'cooking';
-const state = createInitialState(now);
+const state = createInitialState(now, true);
 state.tutorialDone = now;
 state.settings.balance = TUNE;
 for (const p of state.projects) if (p.id !== MAIN_HALL_ID) p.frozen = ![WORK, HOME, 'dating', 'friends'].includes(p.id);

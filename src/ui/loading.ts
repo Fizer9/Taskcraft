@@ -1,8 +1,11 @@
 // Экран загрузки, как в WC3: картинка во весь экран, полоска загрузки и совет снизу.
+// Картинка та же, что у людей в сетевой игре: горный король на пергаменте, а в рамке, где
+// в игре видна карта, стоит наш щит (ui/loading-human.jpg, scripts/build-art.py). Пока
+// картинка не расшифрована или на узком экране телефона, остаётся тёмный фон.
 // Полоска идёт по файлам графики (assets/loader.ts), экран уходит, когда стоит база:
 // юниты, Легион и музыка догружаются уже в игре.
 
-import { onArtProgress } from '../assets/loader';
+import { artUrl, onArtProgress } from '../assets/loader';
 
 const TIPS = [
   'Любое дело сначала записывается задачей: «Купить продукты #cook !1 @пт» сразу с проектом, уровнем и сроком.',
@@ -53,6 +56,11 @@ export function showLoading(): { done: () => void } {
       <div class="loading-text">Загрузка…</div>
     </div>`;
   document.body.appendChild(el);
+  void artUrl('ui/loading-human.jpg').then((url) => {
+    if (!url) return;
+    el.style.setProperty('--loading-art', `url(${url})`);
+    el.classList.add('art');
+  });
   const fill = el.querySelector('.loading-bar span') as HTMLElement;
   const text = el.querySelector('.loading-text') as HTMLElement;
   // Полоска только растёт: новые файлы в списке не должны откатывать её назад.

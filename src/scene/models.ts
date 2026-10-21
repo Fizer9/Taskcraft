@@ -15,6 +15,8 @@ export interface ModelInstance {
   playThen(name: string, next: string, speed?: number): void;
   /** Скорость текущей анимации: шаг подстраивается под скорость движения, чтобы ноги не скользили. */
   setSpeed(ratio: number): void;
+  /** Длительность анимации в секундах, 0 если её нет. */
+  duration(name: string): number;
   dispose(): void;
 }
 
@@ -90,6 +92,10 @@ export function instantiate(container: AssetContainer): ModelInstance {
     playLike(prefix, loop = true) {
       const name = [...groups.keys()].find((n) => n.toLowerCase().startsWith(prefix.toLowerCase()));
       if (name) play(name, loop);
+    },
+    duration(name) {
+      const g = groups.get(name);
+      return g ? (g.to - g.from) / 60 : 0;
     },
     setSpeed(ratio) {
       if (current && Math.abs(current.speedRatio - ratio) > 0.01) current.speedRatio = ratio;
