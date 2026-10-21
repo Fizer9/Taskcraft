@@ -35,6 +35,8 @@ export class Objectives {
     private world: World,
     /** Щелчок по фронту: выбрать базу. */
     private onFront: (id: string) => void,
+    /** Открыть казарму базы: нанять юнита. */
+    private onHire: (id: string) => void,
   ) {
     this.el = document.createElement('div');
     this.el.id = 'objectives';
@@ -60,8 +62,12 @@ export class Objectives {
       return;
     }
     if (go === 'task') {
-      document.getElementById('side')?.classList.remove('hidden');
-      (document.querySelector('#new-scroll input') as HTMLInputElement | null)?.focus();
+      // Первый юнит нанимается в казарме первой базы проекта (или главной ратуши).
+      const s = this.store.state;
+      const id = (s.projects.find((p) => p.id !== MAIN_HALL_ID && onMap(p) && !p.capturedAt) ?? s.projects[0]).id;
+      this.onFront(id);
+      this.world.ping(id);
+      this.onHire(id);
     } else if (go === 'day') openPlanning(this.store);
     else if (go === 'week') openWeek(this.store);
     else if (go === 'life') openCouncil(this.store);
@@ -89,7 +95,7 @@ export class Objectives {
     if (plan.length) {
       const done = plan.filter((id) => this.store.task(id)?.status === 'done').length;
       row('day', '☀', 'Сегодня', `${done}/${plan.length} ${plural(plan.length, 'задача', 'задачи', 'задач')}`, done === plan.length);
-    } else if (!open) row('task', '☀', 'Сегодня', 'запиши задачу (Q)');
+    } else if (!open) row('task', '☀', 'Сегодня', 'найми первого юнита');
     else row('day', '☀', 'Сегодня', 'составь план');
 
     const goals = s.week?.start === weekStart(s) ? s.week.goals : [];

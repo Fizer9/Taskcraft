@@ -164,7 +164,10 @@ const TECH_BTN: Record<TechId, BtnIcon | BtnIcon[]> = {
   armor: ['humanarmorupone', 'humanarmoruptwo', 'humanarmorupthree'],
   weapons: ['steelmelee', 'thoriummelee', 'arcanitemelee'],
 };
-/** Способности героев по классам, в порядке клавиш Q W E R. */
+/** Клавиши камеры: на них нет приказов. */
+const CAMERA_KEYS = ['W', 'A', 'S', 'D'];
+
+/** Способности героев по классам, по порядку клеток сетки. */
 const SPELL_BTN: Record<HeroKind, BtnIcon[]> = {
   mountainking: ['stormbolt', 'thunderclap', 'bash', 'avatar'],
   paladin: ['holybolt', 'divineintervention', 'devotion', 'resurrection'],
@@ -341,7 +344,15 @@ export class Hud {
     window.setInterval(() => this.drawMinimap(), 200);
     world.select(this.sel.kind === 'base' ? this.sel.id : null);
     world.focusBase(store.state.hero.baseId);
-    new Objectives(store, world, (id) => this.select({ kind: 'base', id }));
+    new Objectives(
+      store,
+      world,
+      (id) => this.select({ kind: 'base', id }),
+      (id) => {
+        const p = store.project(id);
+        if (p) this.barracksDialog(p);
+      },
+    );
     // Лобби закрылось: камера к первой цели новой игры.
     let setup = !!store.state.setupDone;
     store.subscribe((st) => {
@@ -735,11 +746,17 @@ export class Hud {
         this.world.focusHero();
         return;
       }
+      // WASD двигают камеру (world.ts), приказов на них нет.
+      if (CAMERA_KEYS.includes(e.code.slice(3)) && e.code.startsWith('Key')) return;
       const key = e.key.length === 1 ? e.key.toUpperCase() : e.key;
       const cmd = this.commands.find((c) => c.hotkey === key || (key === 'Escape' && c.hotkey === 'Esc'));
       if (cmd && cmd.enabled !== false) {
         e.preventDefault();
         cmd.run();
+      } else if (key === 'Escape' && !cmd) {
+        // Esc на карте открывает меню, а в открытом меню закрывает его (modal.ts).
+        e.preventDefault();
+        openSettings(this.store, this.sync);
       } else if (digit && !cmd && !e.altKey) {
         // Цифра без команды с такой клавишей вызывает группу.
         e.preventDefault();
@@ -820,6 +837,56 @@ export class Hud {
       if (answer !== 'yes') return this.render();
     }
     this.store.setDue(t.id, due);
+  }
+
+  /**
+   * Казарма базы, как в WC3: вписал дело, щёлкнул по юниту, и он нанят в этот проект.
+   * Окно не закрывается, чтобы нанять несколько подряд; Enter нанимает того же юнита.
+   */
+  private barracksDialog(p: Project) {
+    const UNIT_BTN: Record<Level, BtnIcon> = { 1: 'footman', 2: 'rifleman', 3: 'knight', 4: 'gryphonrider' };
+    let last: Level = 1;
+    const { root, close } = openModal(
+      `<h3>Казарма: ${esc(p.name)}</h3>` +
+        `<label>Задача</label><input name="title" maxlength="200" placeholder="Что сделать, Enter или щелчок по юниту">` +
+        `<label>Срок, если есть</label><input type="date" name="due">` +
+        `<label>Юнит по размеру задачи</label><div class="hire-units">${([1, 2, 3, 4] as Level[])
+          .map((l) => {
+            const locked = l > maxLevel(this.store.state);
+            return (
+              `<button class="btn hire-unit${l === last ? ' on' : ''}" data-l="${l}"${locked ? ' disabled title="Нужно грифонье гнездо (замок)"' : ''}>` +
+              `<i class="hire-icon">${btnArt(UNIT_BTN[l])}<span class="glyph">${l}</span></i><b>${UNITS[l].name}</b><span>${locked ? 'нужно грифонье гнездо' : UNITS[l].hint}</span></button>`
+            );
+          })
+          .join('')}</div>` +
+        `<div class="hint hire-done"></div>` +
+        `<div class="actions"><button class="btn" data-a="cancel">Закрыть</button></div>`,
+      'wide',
+    );
+    const input = root.querySelector('[name="title"]') as HTMLInputElement;
+    const due = root.querySelector('[name="due"]') as HTMLInputElement;
+    const done = root.querySelector('.hire-done') as HTMLElement;
+    input.focus();
+    const hire = (level: Level) => {
+      const title = input.value.trim();
+      if (!title) {
+        done.textContent = 'Сначала впиши задачу.';
+        input.focus();
+        return;
+      }
+      last = level;
+      root.querySelectorAll('[data-l]').forEach((x) => x.classList.toggle('on', Number((x as HTMLElement).dataset.l) === level));
+      const t = this.store.addTask(title, p.id, level);
+      if (due.value) this.store.setDue(t.id, due.value);
+      done.textContent = `Нанят ${UNITS[level].name.toLowerCase()}: «${title}». Можно нанять ещё.`;
+      input.value = '';
+      input.focus();
+    };
+    root.querySelectorAll<HTMLButtonElement>('[data-l]').forEach((b) => b.addEventListener('click', () => hire(Number(b.dataset.l) as Level)));
+    root.querySelector('[data-a="cancel"]')!.addEventListener('click', close);
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') hire(last);
+    });
   }
 
   /** Новый юнит в отряд: название и уровень. */
@@ -1242,7 +1309,7 @@ export class Hud {
         bar('xp', h.xp, xpForLevel(h.level), `Опыт ${h.xp} / ${xpForLevel(h.level)}`) +
         bar('mana', h.mana, h.maxMana, `Мана ${Math.floor(h.mana)} / ${h.maxMana}`) +
         (h.fallenAt
-          ? `<div class="row stopped">Пал от истощения. Вернётся на рассвете или воскреси на алтаре за ${reviveCost(h)} золота (A).</div>`
+          ? `<div class="row stopped">Пал от истощения. Вернётся на рассвете или воскреси на алтаре за ${reviveCost(h)} золота.</div>`
           : `<div class="row">Стоит на базе <b>${esc(this.store.project(h.baseId)?.name ?? '')}</b></div>`) +
         `<div class="row">Смена: ${dutyOf(s, h.slot ?? 0)}</div>` +
         (isMountainKing(h) ? this.heroSpells() : '') +
@@ -1482,7 +1549,15 @@ export class Hud {
       run: () => this.store.unfreezeProject(p.id),
     };
     const cmds: (Command | null)[] = [
-      { icon: '✚', btn: 'scroll', hotkey: 'Q', title: 'Новая задача', text: 'Записать новое дело во входящие.', run: () => this.focusNewScroll() },
+      {
+        icon: '✚',
+        btn: 'footman',
+        hotkey: 'Q',
+        title: 'Нанять юнита',
+        text: `Новая задача сразу в казарму этой базы: впиши дело и выбери юнита по размеру. +${BALANCE.hireLumber} дерева за каждого.`,
+        enabled: !p.capturedAt,
+        run: () => this.barracksDialog(p),
+      },
       p.frozen ? thaw : {
         icon: '⚑',
         btn: 'move',
@@ -1560,7 +1635,7 @@ export class Hud {
         btn: 'crystalball',
         hotkey: 'Z',
         title: 'Планирование дня',
-        text: 'Что пришло ночью и задачи на сегодня, по одной на проект. Новая задача в плане даёт дерево.',
+        text: 'Что пришло ночью и задачи на сегодня, из каждого проекта сколько нужно. Новая задача в плане даёт дерево.',
         run: () => openPlanning(this.store),
       },
       {
@@ -1711,10 +1786,11 @@ export class Hud {
     const slots = heroSlots(s);
     const hireCost = price(s, BALANCE.heroHireGold[heroes.length] ?? 0);
     const cmds: (Command | null)[] = [
-      mk ? spell('stormbolt', 'Q', () => this.frogDialog()) : soon(0, 'Q'),
-      mk ? spell('thunderclap', 'W', () => this.store.thunderClap()) : soon(1, 'W'),
-      mk ? spell('bash', 'E', () => {}) : soon(2, 'E'),
-      mk ? spell('avatar', 'R', () => this.store.avatar()) : soon(3, 'R'),
+      // Заклинания только щелчком: клавиши у героя не нужны.
+      mk ? spell('stormbolt', '', () => this.frogDialog()) : soon(0, ''),
+      mk ? spell('thunderclap', '', () => this.store.thunderClap()) : soon(1, ''),
+      mk ? spell('bash', '', () => {}) : soon(2, ''),
+      mk ? spell('avatar', '', () => this.store.avatar()) : soon(3, ''),
       h.fallenAt
         ? {
             icon: '✟',
@@ -1805,7 +1881,7 @@ export class Hud {
       },
     };
     const empty = { icon: '', hotkey: '', title: '', text: '', enabled: false, run: () => {} };
-    return [learn('stormbolt', 'Q'), learn('thunderclap', 'W'), learn('bash', 'E'), learn('avatar', 'R'), empty, empty, empty, empty, empty, empty, empty, back];
+    return [learn('stormbolt', ''), learn('thunderclap', ''), learn('bash', ''), learn('avatar', ''), empty, empty, empty, empty, empty, empty, empty, back];
   }
 
   /** Выбор класса для нового героя на алтаре. */
@@ -1893,7 +1969,7 @@ export class Hud {
         enabled: t.status === 'hired',
         run: () => {
           if (this.store.start(t.id) && t.projectId && t.projectId !== this.store.state.hero.baseId) {
-            this.store.say('Герой на другой базе, здесь добыча пойдёт медленно. Переведи его клавишей W на базе.');
+            this.store.say('Герой на другой базе, здесь добыча пойдёт медленно. Переведи его кнопкой «Перевести героя сюда» на базе.');
           }
         },
       },
@@ -1983,6 +2059,8 @@ export class Hud {
       const p = this.contextBase();
       if (p) cmds = this.building && p.id === MAIN_HALL_ID ? this.buildCommands() : this.baseCommands(p);
     }
+    // WASD двигают камеру, поэтому у команд в этих клетках клавиш нет.
+    for (const c of cmds) if (CAMERA_KEYS.includes(c.hotkey)) c.hotkey = '';
     this.commands = cmds;
     let html = '';
     for (let i = 0; i < 12; i++) {
@@ -2026,11 +2104,6 @@ export class Hud {
       (c.cost ? `<div class="cost">${costHtml(c.cost)}</div>` : '') +
       `<div>${esc(c.text).replace(/\n/g, '<br>')}</div>`;
     el.style.display = 'block';
-  }
-
-  private focusNewScroll() {
-    $('side').classList.remove('hidden');
-    ($('new-scroll').querySelector('input') as HTMLInputElement).focus();
   }
 
   private message(e: GameEvent) {

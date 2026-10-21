@@ -17,8 +17,8 @@ function label(t: Task): string {
 }
 
 /**
- * Утреннее планирование: что пришло ночью и выбор задач на день, по одной на проект.
- * По умолчанию предлагается задача в работе, потом сильнейший демон, потом первый нанятый юнит.
+ * Утреннее планирование: что пришло ночью и выбор задач на день, из каждого проекта сколько угодно.
+ * По умолчанию отмечена одна: задача в работе, потом сильнейший демон, потом первый нанятый юнит.
  */
 export function openPlanning(store: Store, onLater: () => void = () => {}) {
   const s = store.state;
@@ -33,16 +33,18 @@ export function openPlanning(store: Store, onLater: () => void = () => {}) {
       if (!open.length) return '';
       const rank = (t: Task) => (planned.has(t.id) ? 0 : t.status === 'active' ? 1 : isDemon(t) ? 2 + (4 - demonRank(t)) / 10 : 3);
       open.sort((a, b) => rank(a) - rank(b));
-      const preselect = planned.size ? open.find((t) => planned.has(t.id)) : open[0];
-      const options = open.map((t) => `<option value="${t.id}"${t === preselect ? ' selected' : ''}>${esc(label(t))}</option>`).join('');
-      return `<div class="plan-row"><span>${esc(p.name)}</span><select data-project="${p.id}"><option value="">— ничего</option>${options}</select></div>`;
+      const checked = (t: Task) => (planned.size ? planned.has(t.id) : t === open[0]);
+      const boxes = open
+        .map((t) => `<label class="check"><input type="checkbox" data-task="${t.id}"${checked(t) ? ' checked' : ''}> ${esc(label(t))}</label>`)
+        .join('');
+      return `<div class="plan-project" data-project="${p.id}"><span>${esc(p.name)}</span><div>${boxes}</div></div>`;
     })
     .join('');
 
   const { root, close } = openModal(
     `<h3>Утреннее планирование</h3>` +
       `<div class="plan-report">${report.length ? report.map((l) => `<div>☠ ${esc(l)}</div>`).join('') : '<div>Ночь прошла спокойно, Легион не приходил.</div>'}</div>` +
-      `<label>Задачи на сегодня, по одной на проект</label>` +
+      `<label>Задачи на сегодня</label>` +
       (rows ? `<div class="plan-list">${rows}</div>` : '<div class="hint">Нанятых юнитов пока нет. Запиши задачи и назначь им проект и уровень.</div>') +
       `<div class="hint">Каждая новая задача в плане даёт +${BALANCE.planLumberPerTask} дерева: дерево платит за план.</div>` +
       `<div class="actions"><button class="btn" data-a="later">Позже</button><button class="btn" data-a="ok">Утвердить план</button></div>`,
@@ -53,7 +55,7 @@ export function openPlanning(store: Store, onLater: () => void = () => {}) {
     onLater();
   });
   root.querySelector('[data-a="ok"]')!.addEventListener('click', () => {
-    const ids = [...root.querySelectorAll<HTMLSelectElement>('select[data-project]')].map((x) => x.value).filter(Boolean);
+    const ids = [...root.querySelectorAll<HTMLInputElement>('input[data-task]:checked')].map((x) => x.dataset.task!);
     close();
     store.planDay(ids);
   });

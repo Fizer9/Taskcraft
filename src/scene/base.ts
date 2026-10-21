@@ -81,6 +81,13 @@ const FLOAT_LIFE = 2;
 const FARM_BIRTH = 6;
 /** Казарма в координатах базы и её дверь: новые юниты выходят оттуда к флагу сбора. */
 const BARRACKS = new Vector3(-13, 0, 9);
+/** Стена вокруг базы проекта (координаты базы): радиус и ворота к крепости по x. */
+const WALL_R = 28;
+const GATE_TO_FORTRESS = -6;
+/** Полуширина ворот: к главной ратуше (по оси +z) и к крепости (по оси −z). */
+const GATE_HALF = 5;
+/** Длина звена низкой стены города людей (citylowwall0) в единицах мира. */
+const WALL_LEN = 3.28;
 /** Какой звук отклика у модели здания при щелчке (sound/buildings/<имя>what.mp3). */
 const SELECT_SOUND: Partial<Record<ModelName, string>> = { townhall: 'townhall', farm: 'farm', humanbarracks: 'barracks', altarofkings: 'altar', goldmine: 'goldmine' };
 /**
@@ -436,15 +443,22 @@ export class Base {
   paintGround(map: TerrainMap) {
     const w = (x: number, z: number) => Vector3.TransformCoordinates(new Vector3(x, 0, z), this.root.computeWorldMatrix(true));
     const c = w(0, 0);
-    map.disc(Ground.DirtGrass, c.x, c.z, 25, 0.3);
-    map.disc(Ground.Dirt, c.x, c.z, 19, 0.3);
+    const main = !this.fortressNode;
+    // База проекта за стеной: утоптанная земля до стены, у ратуши каменная площадь.
+    map.disc(Ground.DirtGrass, c.x, c.z, main ? 25 : 33, 0.3);
+    map.disc(Ground.Dirt, c.x, c.z, main ? 19 : 29, 0.3);
     const mine = w(this.minePos.x, this.minePos.z);
     map.disc(Ground.Rough, mine.x, mine.z, 8, 0.4);
     map.path(Ground.Rough, mine.x, mine.z, c.x, c.z, 2.2);
     const wood = w(this.treePos.x - 2, this.treePos.z + 3);
     map.path(Ground.DirtGrass, wood.x, wood.z, c.x, c.z, 2);
+    map.disc(Ground.Paving, c.x, c.z, main ? 13 : 14, 0.15);
     if (this.fortressNode) {
+      // Мощёная дорога от площади через ворота к вражеской крепости.
+      const gate = w(GATE_TO_FORTRESS, -WALL_R);
       const f = w(0, -48);
+      map.path(Ground.Paving, c.x, c.z, gate.x, gate.z, 2.4);
+      map.path(Ground.Paving, gate.x, gate.z, f.x, f.z, 2.4);
       map.disc(Ground.Rough, f.x, f.z, 11, 0.4);
       map.disc(Ground.Rock, f.x, f.z, 7, 0.4);
     }
@@ -470,18 +484,18 @@ export class Base {
       ['village_fenceshort', 24.2, 5, 0],
       ['bannerhuman0', -5.5, 16, 0],
       ['wheelbarrel', -22, -4, 1.1],
-      ['lords_rock0', -27, 1, 0.5],
-      ['lords_rock2', 27, 14, 2],
+      ['lords_rock0', -24, 1, 0.5],
+      ['lords_rock2', 23, 13, 2],
       // Фонари у дороги к ратуше, указатель на развилке и трава по краю утоптанной земли.
       ['lanternpost0', -4.5, main ? 26 : 24, Math.PI],
       ['lanternpost0', 4.5, main ? 26 : 24, Math.PI],
-      ['signpost0', 8, main ? 31 : 28, -0.5],
-      ['summergrass0', -26, 12, 0.4],
-      ['summergrass1', 26, -9, 1.3],
-      ['summergrass0', -18, -20, 2.2],
+      ['signpost0', main ? 8 : 9, main ? 31 : 22, -0.5],
+      ['summergrass0', -22, 12, 0.4],
+      ['summergrass1', 22, -8, 1.3],
+      ['summergrass0', -15, -18, 2.2],
       ['summergrass1', 3, -24, 0.9],
       ['summergrass0', 28, 22, 0.1],
-      ['summergrass1', -28, -10, 2.8],
+      ['summergrass1', -31, -12, 2.8],
     ];
     if (!main) {
       items.push(
@@ -497,6 +511,7 @@ export class Base {
         ['skullpile0', 11, -54, 1],
         ['lords_rock1', -13, -55, 0.8],
       );
+      items.push(...this.walls());
     }
     const m = this.root.computeWorldMatrix(true);
     return items.map(([model, x, z, rot, scale = 1]) => ({
@@ -505,6 +520,44 @@ export class Base {
       rot: rot + this.root.rotation.y,
       scale,
     }));
+  }
+
+  /**
+   * Низкая каменная стена города людей вокруг базы проекта: звенья по кругу, ворота к
+   * главной ратуше и к вражеской крепости с фонарями по бокам, столбы через каждые
+   * несколько звеньев. Там, где стену пересекает роща, проход для лесорубов.
+   */
+  private walls(): [ModelName, number, number, number, number?][] {
+    const out: [ModelName, number, number, number, number?][] = [];
+    const n = Math.round((2 * Math.PI * WALL_R) / WALL_LEN);
+    const step = (2 * Math.PI) / n;
+    const scale = (2 * WALL_R * Math.sin(step / 2)) / WALL_LEN;
+    const at = (a: number) => ({ x: WALL_R * Math.sin(a), z: WALL_R * Math.cos(a) });
+    const gate = (p: { x: number; z: number }) =>
+      (p.z > 0 && Math.abs(p.x) < GATE_HALF) || (p.z < 0 && Math.abs(p.x - GATE_TO_FORTRESS) < GATE_HALF);
+    const grove = (p: { x: number; z: number }) => this.trees.some((t) => Math.hypot(t.pos.x - p.x, t.pos.z - p.z) < 3.4);
+    const open = (i: number) => {
+      const p = at((i + 0.5) * step);
+      return gate(p) || grove(p);
+    };
+    for (let i = 0; i < n; i++) {
+      if (open(i)) continue;
+      const mid = at((i + 0.5) * step);
+      // Длинная сторона звена после перевода в сцену лежит вдоль z: поворачиваем по касательной.
+      out.push(['citylowwall0', mid.x, mid.z, (i + 0.5) * step + Math.PI / 2, scale]);
+      // Столб на стыке: у ворот с фонарём, у рощи и через каждые шесть звеньев простой.
+      const prevOpen = open((i - 1 + n) % n);
+      const nextOpen = open((i + 1) % n);
+      for (const [edge, gap] of [
+        [i, prevOpen],
+        [i + 1, nextOpen],
+      ] as const) {
+        const p = at(edge * step);
+        if (gap) out.push([gate(at((edge + (edge === i ? -0.5 : 0.5)) * step)) ? 'city_lowwall_tallendcapwithlantern0' : 'city_lowwall_tallendcap', p.x, p.z, edge * step, 0.8]);
+        else if (edge === i && i % 6 === 0) out.push(['city_lowwall_tallendcap', p.x, p.z, edge * step, 0.8]);
+      }
+    }
+    return out;
   }
 
   /** Круг выделения из игры вместо простого кольца. */

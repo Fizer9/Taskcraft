@@ -147,8 +147,8 @@ export class Store {
     const n = setup.projects.length;
     this.say(
       n
-        ? `Игра началась. Заложено баз: ${n}. Запиши первую задачу (Q) и найми юнита в проект: каждая сделанная задача бьёт по вражеской крепости.`
-        : 'Игра началась. Заложи первую базу проекта (Меню → Проекты) и запиши первую задачу (Q).',
+        ? `Игра началась. Заложено баз: ${n}. Выбери базу и найми юнита в её казарме (Q): каждая сделанная задача бьёт по вражеской крепости.`
+        : 'Игра началась. Заложи первую базу проекта (Меню → Проекты) и найми юнита в её казарме (Q).',
       'win',
       'farm',
     );
@@ -1139,20 +1139,15 @@ export class Store {
   }
 
   /**
-   * Утреннее планирование: задачи на день, по одной на проект. За каждую новую
+   * Утреннее планирование: задачи на день, сколько угодно из любого проекта. За каждую новую
    * задачу в плане даётся дерево (сначала гасит долг).
    */
   planDay(taskIds: string[]) {
     const s = this.state;
     const day = gameDay(s);
-    const seen = new Set<string>();
-    const ids = taskIds.filter((id) => {
+    const ids = [...new Set(taskIds)].filter((id) => {
       const t = this.task(id);
-      if (!t || !isOpen(t)) return false;
-      const base = demonBaseId(t);
-      if (seen.has(base)) return false;
-      seen.add(base);
-      return true;
+      return !!t && isOpen(t);
     });
     const before = new Set(s.dayPlan?.day === day ? s.dayPlan.taskIds : []);
     const added = ids.filter((id) => !before.has(id)).length;

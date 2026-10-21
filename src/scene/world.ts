@@ -321,12 +321,16 @@ export class World {
     }
   }
 
-  /** Земля Лордерона из тайлов WC3: базы на утоптанной земле, дороги к главной ратуше. */
+  /** Земля Лордерона из тайлов WC3: базы за стенами на мостовой, мощёные дороги к ратуше и к крепостям. */
   async loadTerrain(): Promise<boolean> {
     const map = new TerrainMap(MAP_HALF);
     map.meadows();
-    for (const p of this.store.state.projects) {
-      if (p.slot.x || p.slot.z) map.path(Ground.Rough, 0, 0, p.slot.x, p.slot.z, 2.6);
+    for (const p of this.store.state.projects.filter(onMap)) {
+      // Мощёная дорога от главной ратуши к воротам базы, по краям утоптанная земля.
+      if (p.slot.x || p.slot.z) {
+        map.path(Ground.Rough, 0, 0, p.slot.x, p.slot.z, 3.4);
+        map.path(Ground.Paving, 0, 0, p.slot.x, p.slot.z, 2.2);
+      }
     }
     for (const b of this.bases.values()) b.paintGround(map);
     // Скверна WC3 на заброшенных и захваченных базах, поверх всей остальной земли.
@@ -583,10 +587,13 @@ export class World {
       if (e.key === 'Alt') e.preventDefault();
       if ((e.target as HTMLElement).closest?.('input, textarea, select')) return;
       this.keys.add(e.key.toLowerCase());
+      // WASD по физическим клавишам: камера ходит и в русской раскладке.
+      if (!e.ctrlKey && !e.metaKey && !e.altKey && /^Key[WASD]$/.test(e.code)) this.keys.add(e.code.toLowerCase());
     });
     window.addEventListener('keyup', (e) => {
       if (e.key === 'Alt') e.preventDefault();
       this.keys.delete(e.key.toLowerCase());
+      this.keys.delete(e.code.toLowerCase());
     });
     // Щипок на тачпаде браузер понимает как Ctrl+колесо и увеличивает всю страницу,
     // а интерфейс уезжает за края окна. В игре масштаб меняет только камера.
@@ -1268,10 +1275,10 @@ export class World {
     // Сдвиг камеры стрелками и краем экрана, как в WC3 (буквы заняты горячими клавишами команд).
     const pan = new Vector3(0, 0, 0);
     const k = this.keys;
-    if (k.has('arrowleft')) pan.x -= 1;
-    if (k.has('arrowright')) pan.x += 1;
-    if (k.has('arrowup')) pan.z += 1;
-    if (k.has('arrowdown')) pan.z -= 1;
+    if (k.has('arrowleft') || k.has('keya')) pan.x -= 1;
+    if (k.has('arrowright') || k.has('keyd')) pan.x += 1;
+    if (k.has('arrowup') || k.has('keyw')) pan.z += 1;
+    if (k.has('arrowdown') || k.has('keys')) pan.z -= 1;
     if (this.mouse.inside) {
       const edge = 6;
       if (this.mouse.x <= edge) pan.x -= 1;

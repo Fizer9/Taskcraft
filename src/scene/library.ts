@@ -59,6 +59,10 @@ export const MODEL_NAMES = [
   'skullpile0',
   'braziergreen',
   'village_fencelong',
+  // Низкая стена города людей вокруг баз проектов.
+  'citylowwall0',
+  'city_lowwall_tallendcap',
+  'city_lowwall_tallendcapwithlantern0',
   'village_fenceshort',
   'lordaerontree0',
   'lordaerontree1',

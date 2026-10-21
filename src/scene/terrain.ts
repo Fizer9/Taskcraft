@@ -27,7 +27,7 @@ export const TILE = 3.2;
  * Порядок важен: тип с большим номером рисуется поверх меньших. Последней идёт скверна
  * Лордерона: она ложится поверх всего на заброшенных и захваченных базах.
  */
-export const TILESET = ['lords_dirt', 'lords_dirtrough', 'lords_dirtgrass', 'lords_rock', 'lords_grass', 'lords_grassdark', 'lords_blight'] as const;
+export const TILESET = ['lords_dirt', 'lords_dirtrough', 'lords_dirtgrass', 'lords_rock', 'lords_grass', 'lords_grassdark', 'lords_stonepath', 'lords_blight'] as const;
 export const enum Ground {
   Dirt = 0,
   Rough = 1,
@@ -35,7 +35,9 @@ export const enum Ground {
   Rock = 3,
   Grass = 4,
   DarkGrass = 5,
-  Blight = 6,
+  /** Каменная мостовая деревни людей: площадь у ратуши и дороги. */
+  Paving = 6,
+  Blight = 7,
 }
 
 /** Есть ли тайлы скверны среди ассетов: без них скверна остаётся зелёным пятном (blight.ts). */
@@ -135,7 +137,8 @@ export class TerrainMap {
           } else {
             tile = (br === t ? 1 : 0) | (bl === t ? 2 : 0) | (tr === t ? 4 : 0) | (tl === t ? 8 : 0);
           }
-          out[(j * n + i) * 4 + k] = t * 32 + tile;
+          // 255 значит «слоя нет»: последний вариант скверны заменяем соседним.
+          out[(j * n + i) * 4 + k] = Math.min(254, t * 32 + tile);
         });
       }
     }
@@ -306,6 +309,8 @@ export async function terrainMaterial(scene: Scene, map: TerrainMap): Promise<St
   // Скверна необязательна: без её тайлов на её месте рисуется неровная земля.
   blightTiles = !!files[Ground.Blight];
   if (!blightTiles) files[Ground.Blight] = files[Ground.Rough];
+  // Без мостовой в ассетах дороги и площадь остаются утоптанной землёй.
+  if (!files[Ground.Paving]) files[Ground.Paving] = files[Ground.Dirt];
   if (files.some((f) => !f)) return null;
   const layers = await Promise.all(files.map((f) => decode(f!)));
   colors = layers.map(averageColor);

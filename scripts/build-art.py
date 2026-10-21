@@ -22,6 +22,12 @@ from PIL import Image
 
 TERRAIN = ['lords_dirt', 'lords_dirtrough', 'lords_dirtgrass', 'lords_rock', 'lords_grass', 'lords_grassdark']
 
+# Тайлы из других наборов земли: имя в assets-src/terrain → файл в выгрузке. У них атлас 4×4
+# (только переходы, без вариантов сплошной клетки), а игра ждёт 8×4 как у Лордерона.
+SQUARE_TILES = {
+    'lords_stonepath': 'terrainart/village/village_stonepath_diffuse',
+}
+
 # Иконки и фоны интерфейса: имя в игре → имя в assets-src/ui и размер.
 UI_FILES = {
     'ui/widgets/tooltips/human/tooltipgoldicon': ('gold', 64),
@@ -108,6 +114,17 @@ def load(root, rel):
                 return im.convert('RGBA')
     MISSING.append(rel)
     raise Missing(rel)
+
+
+def square_tile(im):
+    """Атлас 4×4 в раскладку 8×4: слева 16 переходов, справа сплошные клетки (0 и 15 по очереди)."""
+    left = im.resize((512, 512), Image.LANCZOS)
+    out = Image.new('RGBA', (1024, 512))
+    out.paste(left, (0, 0))
+    full = [left.crop((0, 0, 128, 128)), left.crop((384, 384, 512, 512))]
+    for i in range(16):
+        out.paste(full[i % 2], (512 + (i % 4) * 128, (i // 4) * 128))
+    return out
 
 
 def fit(im, size):
@@ -297,6 +314,8 @@ def main():
     for name in TERRAIN:
         step(lambda: save(load(args.root, 'terrainart/lordaeronsummer/%s_diffuse' % name).resize((1024, 512), Image.LANCZOS),
                           os.path.join(args.out, 'terrain', name + '.png')))
+    for name, rel in SQUARE_TILES.items():
+        step(lambda: save(square_tile(load(args.root, rel)), os.path.join(args.out, 'terrain', name + '.png')))
     for rel, (name, size) in UI_FILES.items():
         step(lambda: save(fit(load(args.root, rel), size), os.path.join(args.out, 'ui', name + '.png')))
     for rel, (name, size) in FX_FILES.items():

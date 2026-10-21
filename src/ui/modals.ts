@@ -100,6 +100,16 @@ export function openSettings(store: Store, sync: Sync) {
 
     <h3 style="margin-top:18px">Сохранение в Gist</h3>
     <div class="hint">${connected ? `Подключено. Gist: ${esc(getGistId() ?? 'создаётся')}` : 'Сейчас игра хранится только в этом браузере.'}</div>
+    <details class="gist-help"${connected ? '' : ' open'}>
+      <summary>Как включить сохранение в GitHub</summary>
+      <ol>
+        <li>На github.com открой свой аватар → <b>Settings</b> → внизу слева <b>Developer settings</b> → <b>Personal access tokens</b> → <b>Fine-grained tokens</b> → <b>Generate new token</b>.</li>
+        <li>Назови токен (например, Taskcraft), срок поставь подольше. В <b>Permissions</b> → <b>Account permissions</b> выбери <b>Gists: Read and write</b>, больше ничего не нужно. Нажми <b>Generate token</b> и скопируй его (github_pat_…).</li>
+        <li>Вставь токен в поле ниже, поле id гиста оставь пустым, придумай пароль и нажми «Сохранить». Игра создаст секретный гист и будет сохраняться в него сама.</li>
+        <li>На другом устройстве вставь тот же токен, id гиста отсюда и тот же пароль.</li>
+      </ol>
+      <div>Токен хранится в браузере только зашифрованным твоим паролем. Гист секретный: его видит только тот, у кого есть ссылка.</div>
+    </details>
     <label>Токен GitHub (право gist)</label>
     <input type="password" name="token" placeholder="${connected ? 'Оставь пустым, чтобы не менять' : 'github_pat_…'}">
     <label>Id гиста</label>
