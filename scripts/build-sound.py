@@ -37,6 +37,8 @@ SFX = {
     'collapse-small': 'sound/buildings/death/buildingdeathsmallhuman',
     'place': 'sound/buildings/shared/buildingplacement',
     'hammer': 'sound/buildings/shared/constructionloop1',
+    # предсмертный крик юнита, который разлетается на куски
+    'explode': 'units/human/footman/footmandeath_hd',
 }
 # Фон окружения: день и ночь Лордерона летом, дождь, мельница и ручей у баз.
 AMBIENT = {

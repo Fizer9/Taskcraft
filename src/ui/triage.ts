@@ -37,7 +37,7 @@ export function openTriage(store: Store) {
       return (
         `<div class="triage-row" data-id="${t.id}">` +
         `<div class="triage-title"><span>${isDemon(t) ? '☠ ' : ''}${esc(t.title)}</span><span class="triage-age${stale ? ' stale' : ''}">${age(t, now)}</span></div>` +
-        `<div class="triage-fields">${proj}${level}${due}<label class="check" title="Сжечь свиток: дело не нужно"><input type="checkbox" data-f="drop"> в огонь</label></div>` +
+        `<div class="triage-fields">${proj}${level}${due}<label class="check" title="Сжечь задачу: дело не нужно"><input type="checkbox" data-f="drop"> в огонь</label></div>` +
         `</div>`
       );
     })
@@ -46,7 +46,7 @@ export function openTriage(store: Store) {
   const { root, close } = openModal(
     `<h3>Разбор входящих · ${inbox.length}</h3>` +
       (inbox.length
-        ? `<div class="hint">Свиток с проектом и уровнем становится юнитом в казарме, +${BALANCE.hireLumber} дерева за каждого. Свитки старше ${BALANCE.portalScrollDays} дней кормят портал Легиона.</div>` +
+        ? `<div class="hint">Задача с проектом и уровнем становится юнитом в казарме, +${BALANCE.hireLumber} дерева за каждого. Задачи старше ${BALANCE.portalScrollDays} дней кормят портал Легиона.</div>` +
           `<div class="triage-list">${rows}</div>`
         : '<div class="hint">Входящие пусты. Новые дела пиши в поле над списком.</div>') +
       `<div class="actions"><button class="btn" data-a="cancel">Закрыть</button>${inbox.length ? '<button class="btn" data-a="ok">Разобрать</button>' : ''}</div>`,

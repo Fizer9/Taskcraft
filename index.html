@@ -22,7 +22,7 @@
       <div class="menu">
         <button data-action="open-quests" title="Журнал заданий (F9)">Задания</button>
         <button data-action="open-settings" id="menu-btn" title="Настройки (F10)">Меню</button>
-        <button data-action="toggle-side" title="Свитки (Ё)">Свитки</button>
+        <button data-action="toggle-side" title="Задачи (Ё)">Задачи</button>
       </div>
       <div id="clock"></div>
       <div id="daydial"><div class="dial-wheel"><i class="sun"></i><i class="moon"></i></div></div>
@@ -30,12 +30,12 @@
     </header>
 
     <aside id="side">
-      <h2>Свитки</h2>
+      <h2>Задачи</h2>
       <form id="new-scroll" autocomplete="off">
-        <input name="title" placeholder="Новый свиток, Enter" maxlength="200" title="Можно сразу: #проект !уровень @завтра. Например: Купить продукты #cook !1 @пт" />
+        <input name="title" placeholder="Новая задача, Enter" maxlength="200" title="Можно сразу: #проект !уровень @завтра. Например: Купить продукты #cook !1 @пт" />
       </form>
       <div id="side-filter">
-        <input id="filter-q" type="search" placeholder="Поиск по свиткам ( / )" maxlength="100" />
+        <input id="filter-q" type="search" placeholder="Поиск по задачам ( / )" maxlength="100" />
         <div class="filter-row">
           <select id="filter-project" title="Проект"></select>
           <select id="filter-level" title="Уровень"></select>

@@ -1,8 +1,11 @@
 // Юниты задач на базе. Нанятый юнит (задача в казарме) стоит строем у казармы,
 // юнит задачи в работе уходит к крепости врага и бьётся у её стен, а когда задача
-// выполнена, он бросается на крепость, наносит удар и празднует победу.
+// выполнена, он бросается на крепость, наносит удар, празднует победу и разлетается на
+// куски, как от выстрела катапульты. Распущенный юнит (задача отменена) взрывается сразу.
 
 import { MeshBuilder, Scene, TransformNode, Vector3, type AbstractMesh } from '@babylonjs/core';
+import { sounds } from '../audio/sound';
+import { explode } from './gibs';
 import type { Level, Task } from '../state/types';
 import type { ModelLibrary, ModelName } from './library';
 import { turnTowards, type ModelInstance } from './models';
@@ -74,12 +77,14 @@ export class Troops {
     for (const tr of this.troops.values()) {
       if (ids.has(tr.taskId) || tr.state === 'charge' || tr.state === 'victory') continue;
       const task = tasks.find((t) => t.id === tr.taskId);
-      if (task?.status !== 'done') this.remove(tr);
+      // Отменённый или удалённый юнит взрывается, перенесённый на другую базу просто уходит.
+      if (!task || task.status === 'cancelled') this.blowUp(tr);
+      else if (task.status !== 'done') this.remove(tr);
       else if (this.layout.fortress) this.charge(tr);
       else {
         tr.state = 'victory';
         tr.path = [];
-        tr.timer = 2.5;
+        tr.timer = 1.5;
       }
     }
 
@@ -161,6 +166,13 @@ export class Troops {
     tr.timer = 2.4;
   }
 
+  /** Юнит разлетается на куски: вспышка, клочья, лужа крови и предсмертный крик. */
+  private blowUp(tr: Troop) {
+    explode(this.scene, this.parent, tr.root.position.clone());
+    void sounds.play('explode');
+    this.remove(tr);
+  }
+
   private remove(tr: Troop) {
     tr.model?.dispose();
     tr.root.dispose();
@@ -170,6 +182,13 @@ export class Troops {
   /** Юниты на сцене (кроме уходящих победителей) для кругов и рамки выделения. */
   units(): UnitNode[] {
     return [...this.troops.values()].filter((t) => t.state !== 'victory').map((t) => ({ taskId: t.taskId, node: t.root, size: t.level >= 3 ? 3.4 : 2.6 }));
+  }
+
+  /** Где стоят юниты, которые дошли до крепости и бьются у её стен (координаты базы). */
+  fighters(): Vector3[] {
+    const out: Vector3[] = [];
+    for (const tr of this.troops.values()) if (!tr.path.length && (tr.state === 'fight' || tr.state === 'charge')) out.push(tr.root.position);
+    return out;
   }
 
   /** Есть ли юниты, которые сейчас бьются у крепости. */
@@ -206,15 +225,13 @@ export class Troops {
           tr.timer -= dt;
           if (tr.timer <= 0) {
             tr.state = 'victory';
-            tr.timer = 2.5;
+            tr.timer = 1.5;
           }
           break;
         case 'victory':
           this.playAny(m, 'Stand Victory', 'Stand 1');
           tr.timer -= dt;
-          // Юнит растворяется, как в WC3 тает погибший или ушедший с карты.
-          tr.root.getChildMeshes().forEach((x) => (x.visibility = Math.min(1, tr.timer)));
-          if (tr.timer <= 0) this.remove(tr);
+          if (tr.timer <= 0) this.blowUp(tr);
           break;
       }
     }

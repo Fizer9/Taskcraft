@@ -1339,3 +1339,6 @@ body.art-btn-atlas .hero-btn .btn-art { left: 0; height: auto; max-width: none; 
 .info .spell em { z-index: 1; text-shadow: 0 0 2px #000, 0 1px 2px #000; }
 .info .spell.locked .btn-art { filter: grayscale(1); }
 .info .spell.cooldown .btn-art { filter: brightness(0.45); }
+
+/* Выбран враг у крепости: имя красным, как у чужих юнитов в WC3. */
+.info h3.foe { color: #ff5a4a; }

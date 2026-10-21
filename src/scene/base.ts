@@ -23,7 +23,7 @@ import { Troops } from './troops';
 import { Demons, type DemonView } from './legion';
 import { BlightFx } from './blight';
 import { Meteor } from './meteor';
-import type { UnitNode } from './selection';
+import type { Foe, UnitNode } from './selection';
 
 export const BANNER_COLORS: Record<Project['kind'], string> = {
   work: '#2f6bff',
@@ -145,7 +145,11 @@ export class Base {
   private meteor: Meteor;
   /** Стража врат: гончие Скверны по бокам и страж Скверны в середине. */
   private guards: ModelInstance[] = [];
+  /** Посты стражи у врат (координаты крепости): сюда она возвращается после боя. */
+  private guardPosts: Vector3[] = [];
   private gate: ModelInstance | null = null;
+  /** Враги у крепости по имени: под выбранным рисуется красный круг. */
+  private foes = new Map<Foe, TransformNode>();
   /** Портал Легиона у главной ратуши, растёт с числом брошенных свитков. */
   private portal: { node: TransformNode; model: ModelInstance | null; size: number } | null = null;
 
@@ -303,6 +307,8 @@ export class Base {
     this.tech?.setLibrary(this.lib, this.onModelMesh);
     this.demons.setLibrary(this.lib, this.onModelMesh);
     if (this.portal && !this.portal.model) this.dressPortal();
+    // Врата демонов тоже из второй очереди: без этого вместо них так и стояла заглушка.
+    for (const s of [...this.swaps]) this.swap(s);
     this.placeGuards();
   }
 
@@ -312,22 +318,24 @@ export class Base {
     if (!lib || this.guards.length) return;
     const onMesh = this.onModelMesh;
     if (this.fortressNode) {
-      const posts: [ModelName, number, number][] = [
-        ['felhound', -5.5, 8],
-        ['felhound', 5.5, 8],
-        ['felgaurd', 0, 9],
+      const posts: [ModelName, number, number, Foe][] = [
+        ['felhound', -5.5, 8, 'hound1'],
+        ['felhound', 5.5, 8, 'hound2'],
+        ['felgaurd', 0, 9, 'felguard'],
       ];
-      for (const [name, x, z] of posts) {
+      for (const [name, x, z, foe] of posts) {
         const g = lib.create(name, 0.75);
         if (!g) continue;
         g.root.parent = this.fortressNode;
         g.root.position.set(x, 0, z);
         g.root.getChildMeshes().forEach((m) => {
-          m.metadata = { ...(m.metadata ?? {}), baseId: this.project.id };
+          m.metadata = { ...(m.metadata ?? {}), baseId: this.project.id, foe };
           onMesh(m);
         });
         g.play('Stand 1');
         this.guards.push(g);
+        this.guardPosts.push(new Vector3(x, 0, z));
+        this.foes.set(foe, g.root);
       }
     }
   }
@@ -339,8 +347,9 @@ export class Base {
     inst.root.position.copyFrom(s.node.position);
     inst.root.rotation.copyFrom(s.node.rotation);
     const building = SELECT_SOUND[s.model];
+    const foe = s.model === 'demongate' ? { foe: 'gate' } : {};
     inst.root.getChildMeshes().forEach((m) => {
-      m.metadata = { ...(m.metadata ?? {}), baseId: this.project.id, ...(building ? { building } : {}) };
+      m.metadata = { ...(m.metadata ?? {}), baseId: this.project.id, ...(building ? { building } : {}), ...foe };
       this.onModelMesh(m);
     });
     if (s.model === 'townhall') {
@@ -349,7 +358,10 @@ export class Base {
       else inst.play(this.hallAnim);
     } else if (s.anim) inst.play(s.anim);
     else inst.playLike('Stand 1');
-    if (s.model === 'demongate') this.gate = inst;
+    if (s.model === 'demongate') {
+      this.gate = inst;
+      this.foes.set('gate', inst.root);
+    }
     if (s.model === 'goldmine') this.mineModel = inst;
     const tree = this.trees.find((t) => t.swap === s);
     if (tree) tree.model = inst;
@@ -582,6 +594,48 @@ export class Base {
     return [...this.troops.units(), ...this.demons.units()];
   }
 
+  /**
+   * Стража врат: каждый страж выбирает юнита у стен, подбегает к нему вплотную и рубит его,
+   * а когда бой кончился, возвращается на свой пост лицом к базе.
+   */
+  private updateGuards(dt: number, fighters: Vector3[]) {
+    const origin = this.fortressNode?.position;
+    if (!origin) return;
+    this.guards.forEach((g, i) => {
+      const post = this.guardPosts[i];
+      const target = fighters.length ? fighters[i % fighters.length].subtract(origin) : null;
+      // Встаёт в двух шагах от юнита со стороны врат; стражи обступают его веером, а не толпятся в одной точке.
+      let goal = post;
+      if (target) {
+        const a = Math.atan2(-target.x, -target.z) + (i - 1) * 0.9;
+        goal = target.add(new Vector3(Math.sin(a), 0, Math.cos(a)).scale(2.4));
+      }
+      const pos = g.root.position;
+      const d = new Vector3(goal.x - pos.x, 0, goal.z - pos.z);
+      const dist = d.length();
+      if (dist > 0.4) {
+        const step = Math.min(dist, 7 * dt);
+        pos.x += (d.x / dist) * step;
+        pos.z += (d.z / dist) * step;
+        turnTowards(g.root, Math.atan2(d.x, d.z), dt);
+        g.play('Walk 1');
+      } else if (target) {
+        turnTowards(g.root, Math.atan2(target.x - pos.x, target.z - pos.z), dt);
+        g.play('Attack 1');
+      } else {
+        turnTowards(g.root, 0, dt);
+        g.play('Stand Ready 1');
+      }
+    });
+  }
+
+  /** Узел врага у крепости и размер его круга выделения. */
+  foe(foe: Foe): { node: TransformNode; size: number } | null {
+    const node = this.foes.get(foe);
+    if (!node || node.isDisposed()) return null;
+    return { node, size: foe === 'gate' ? 13 : foe === 'felguard' ? 3.6 : 3 };
+  }
+
   setSelected(on: boolean) {
     this.selection.isVisible = on;
   }
@@ -675,9 +729,9 @@ export class Base {
     this.troops.update(dt);
     this.demons.update();
     this.meteor.update(dt);
-    // Пока у стен идёт бой, стража отбивается, а портал врат крутится быстрее.
+    // Пока у стен идёт бой, стража бросается на юнитов, а портал врат крутится быстрее.
     const battle = this.troops.inBattle();
-    for (const g of this.guards) g.play(battle ? 'Attack 1' : 'Stand Ready 1');
+    this.updateGuards(dt, this.troops.fighters());
     this.gate?.play(battle ? 'Stand Work 1' : 'Stand 1');
     // Слабая добыча видна по походке: рабочие плетутся.
     const speed = 5.5 * Math.max(0.35, factor);

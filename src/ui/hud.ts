@@ -89,10 +89,46 @@ import {
 } from '../state/tech';
 import { openProject } from './project';
 import { openQuests } from './quests';
-import { Portrait3D } from './portrait3d';
+import { Portrait3D, type PortraitLook } from './portrait3d';
+import type { Foe } from '../scene/selection';
 import { btnArt, type BtnIcon } from './btn-icons';
 
-type Selection = { kind: 'base'; id: string } | { kind: 'task'; id: string } | { kind: 'hero' } | { kind: 'group'; ids: string[]; hero: boolean };
+/** building: по какому зданию базы щёлкнули (для портрета); foe: враг у вражеской крепости. */
+type Selection =
+  | { kind: 'base'; id: string; building?: string }
+  | { kind: 'task'; id: string }
+  | { kind: 'hero' }
+  | { kind: 'group'; ids: string[]; hero: boolean }
+  | { kind: 'foe'; baseId: string; foe: Foe };
+
+/** Модель здания для портрета по имени здания из метаданных сцены. */
+const BUILDING_LOOK: Record<string, PortraitLook> = {
+  farm: { model: 'farm', anim: 'Stand 1' },
+  barracks: { model: 'humanbarracks', anim: 'Stand 1' },
+  altar: { model: 'altarofkings', anim: 'Stand 1' },
+  lumbermill: { model: 'humanlumbermill', anim: 'Stand 1' },
+  blacksmith: { model: 'blacksmith', anim: 'Stand 1' },
+  workshop: { model: 'workshop', anim: 'Stand 1' },
+  towers: { model: 'humantower', anim: 'Stand Upgrade First Ready Attack' },
+  aviary: { model: 'gryphonaviary', anim: 'Stand 1' },
+  vault: { model: 'arcanevault', anim: 'Stand 1' },
+};
+/** Модель портрета героя по классу; говорят все голосом Горного короля. */
+const HERO_PORTRAIT: Record<HeroKind, string> = {
+  mountainking: 'heromountainking_portrait',
+  paladin: 'heropaladin_portrait',
+  archmage: 'heroarchmage_portrait',
+  bloodmage: 'herobloodelf_portrait',
+};
+const UNIT_PORTRAIT: Record<Level, string> = { 1: 'footman_portrait', 2: 'rifleman_portrait', 3: 'knight_portrait', 4: 'gryphonrider_portrait' };
+const DEMON_PORTRAIT: Record<Level, string> = { 1: 'felhound_portrait', 2: 'felgaurd_portrait', 3: 'doomguard_portrait', 4: 'infernal_portrait' };
+/** Враги у крепости: имя, портрет и строка о том, кто это. */
+const FOES: Record<Foe, { name: string; portrait: PortraitLook; about: string }> = {
+  gate: { name: 'Врата демонов', portrait: { model: 'demongate', anim: 'Stand 1' }, about: 'Крепость Пылающего Легиона. Каждая сделанная задача проекта бьёт по ней, а когда здоровье кончится, врата рухнут и проект будет завершён.' },
+  hound1: { name: 'Гончая Скверны', portrait: { model: 'felhound_portrait' }, about: 'Стража врат. Бросается на юнитов, что бьются у стен.' },
+  hound2: { name: 'Гончая Скверны', portrait: { model: 'felhound_portrait' }, about: 'Стража врат. Бросается на юнитов, что бьются у стен.' },
+  felguard: { name: 'Страж Скверны', portrait: { model: 'felgaurd_portrait' }, about: 'Командир стражи врат. Рубит юнитов, что бьются у стен.' },
+};
 
 interface Command {
   icon: string;
@@ -259,13 +295,14 @@ export class Hud {
     this.bootTick = store.state.lastTick;
     world.onSelectBase = (id, building) => {
       if (!id) return;
-      this.select({ kind: 'base', id });
+      this.select({ kind: 'base', id, building });
       // Ратуша главной базы отвечает голосом своего тира: крепость, замок.
       const hall = id === MAIN_HALL_ID ? (['townhall', 'keep', 'castle'] as const)[tierOf(store.state) - 1] : 'townhall';
       void sounds.selectBuilding(building === 'townhall' || !building ? hall : building);
     };
     world.onSelectTask = (id) => this.pick({ kind: 'task', id });
     world.onSelectHero = () => this.pick({ kind: 'hero' });
+    world.onSelectFoe = (baseId, foe) => this.pick({ kind: 'foe', baseId, foe });
     world.onSelectGroup = (ids, hero) => this.pickUnits(ids, hero);
     world.onOrderHero = (id) => store.moveHero(id);
     world.onSelectSame = (ids) => this.pickUnits(ids, false);
@@ -281,13 +318,10 @@ export class Hud {
       else this.pickUnits(ids, hero);
     };
 
-    // Говорящая голова героя поверх букв портрета; буквы остаются, пока модели нет.
+    // Говорящая голова выбранного поверх букв портрета; буквы остаются, пока модели нет.
     $('portrait').innerHTML = '<div id="portrait-face"></div>';
     this.portrait3d = new Portrait3D($('portrait'));
-    void this.portrait3d.load().then(() => this.render());
-    sounds.onTalk = (voice, seconds) => {
-      if (voice === 'heromountainking') this.portrait3d.talk(seconds);
-    };
+    sounds.onTalk = (voice, seconds) => this.portrait3d.talk(voice, seconds);
 
     store.subscribe(() => this.render());
     store.onEvent((e) => this.message(e));
@@ -306,6 +340,7 @@ export class Hud {
     this.building = false;
     this.world.select(sel.kind === 'base' ? sel.id : null);
     this.world.selectUnits(sel.kind === 'task' ? [sel.id] : sel.kind === 'group' ? sel.ids : [], sel.kind === 'hero' || (sel.kind === 'group' && sel.hero));
+    this.world.selectFoe(sel.kind === 'foe' ? sel : null);
     this.render();
   }
 
@@ -318,6 +353,7 @@ export class Hud {
   /** Камера к выбору: база, герой или первый юнит группы. */
   private focusSelection(sel: Selection) {
     if (sel.kind === 'base') this.world.focusBase(sel.id);
+    else if (sel.kind === 'foe') this.world.focusBase(sel.baseId);
     else if (sel.kind === 'hero' || (sel.kind === 'group' && sel.hero && !sel.ids.length)) this.world.focusHero();
     else this.world.focusUnit(sel.kind === 'task' ? sel.id : sel.ids[0]);
   }
@@ -448,6 +484,7 @@ export class Hud {
   private contextBase(): Project | undefined {
     const s = this.sel;
     if (s.kind === 'base') return this.store.project(s.id);
+    if (s.kind === 'foe') return this.store.project(s.baseId);
     if (s.kind === 'task' || (s.kind === 'group' && s.ids.length)) {
       const t = this.store.task(s.kind === 'task' ? s.id : s.ids[0]);
       if (t?.projectId) return this.store.project(t.projectId);
@@ -468,7 +505,7 @@ export class Hud {
       if (q.due) this.store.setDue(t.id, q.due);
       if (q.projectId && !q.level) t.projectId = q.projectId;
       input.value = '';
-      if (t.status === 'inbox') this.store.say('Новый свиток у ратуши. Укажи проект и уровень, чтобы нанять юнита.');
+      if (t.status === 'inbox') this.store.say('Новая задача у ратуши. Укажи проект и уровень, чтобы нанять юнита.');
       this.select({ kind: 'task', id: t.id });
     });
 
@@ -661,12 +698,12 @@ export class Hud {
       }
     });
 
-    // Двойной щелчок (или двойное касание) по портрету ведёт камеру к герою.
+    // Двойной щелчок (или двойное касание) по портрету ведёт камеру к выбранному, как в WC3.
     let portraitTap = 0;
     $('portrait').addEventListener('pointerup', () => {
       const now = performance.now();
       if (now - portraitTap < 350) {
-        this.world.focusHero();
+        this.focusSelection(this.sel);
         portraitTap = 0;
       } else portraitTap = now;
     });
@@ -1035,7 +1072,7 @@ export class Hud {
             .join('')
         : '') +
       (planned.length ? `<div class="group-title">План на сегодня · ${planned.filter((t) => t.status === 'done').length}/${planned.length}</div>${list(planned, '')}` : '') +
-        `<div class="group-title">Входящие · ${inbox.length}${portalSize(s) ? ' <span class="portal-tag" title="Неразобранные свитки старше ' + BALANCE.portalScrollDays + ' дней открыли портал у главной ратуши">· портал Легиона</span>' : ''}${inbox.length ? '<span class="group-btn" data-action="triage" title="Разобрать все свитки разом (J на базе)">разобрать</span>' : ''}</div>${list(inbox, 'Пусто. Новые дела пиши в поле выше.')}` +
+        `<div class="group-title">Входящие · ${inbox.length}${portalSize(s) ? ' <span class="portal-tag" title="Неразобранные задачи старше ' + BALANCE.portalScrollDays + ' дней открыли портал у главной ратуши">· портал Легиона</span>' : ''}${inbox.length ? '<span class="group-btn" data-action="triage" title="Разобрать все задачи разом (J на базе)">разобрать</span>' : ''}</div>${list(inbox, 'Пусто. Новые дела пиши в поле выше.')}` +
         `<div class="group-title">В работе · ${active.length}</div>${list(active, 'Ни один юнит не в бою.')}` +
         (base
           ? `<div class="group-title">Казарма: ${esc(base.name)} · ${hired.length}</div>${list(hired, 'Нет нанятых юнитов.')}` +
@@ -1088,13 +1125,44 @@ export class Hud {
     );
   }
 
+  /** Что показать в окне портрета: модель выбранного и буквы под ней на время загрузки. */
+  private portraitOf(sel: Selection): { look: PortraitLook | null; face: string; title: string } {
+    const s = this.store.state;
+    const h = s.hero;
+    const heroFace = { look: h.fallenAt ? null : { model: HERO_PORTRAIT[h.kind ?? 'mountainking'], voice: 'heromountainking' }, face: h.fallenAt ? '☠' : HERO_KINDS[h.kind ?? 'mountainking'].short, title: h.name };
+    const unit = (id: string) => {
+      const t = this.store.task(id);
+      if (!t) return null;
+      if (isDemon(t)) {
+        const r = demonRank(t);
+        return { look: { model: DEMON_PORTRAIT[r] }, face: '☠', title: DEMONS[r].name };
+      }
+      if (!t.level) return { look: null, face: '📜', title: t.title };
+      return { look: { model: UNIT_PORTRAIT[t.level], voice: UNIT_VOICE[t.level] }, face: UNIT_SHORT[t.level], title: UNITS[t.level].name };
+    };
+    if (sel.kind === 'hero') return heroFace;
+    if (sel.kind === 'task') return unit(sel.id) ?? heroFace;
+    if (sel.kind === 'group') return (sel.ids.length ? unit(sel.ids[0]) : null) ?? heroFace;
+    if (sel.kind === 'foe') return { look: FOES[sel.foe].portrait, face: '☠', title: FOES[sel.foe].name };
+    const p = this.store.project(sel.id);
+    const b = sel.building && BUILDING_LOOK[sel.building];
+    if (b) return { look: b, face: '⚑', title: p?.name ?? '' };
+    // Ратуша: главная показывает свой тир, захваченная лежит в руинах.
+    const anim = p?.capturedAt ? 'Death 1' : sel.id === MAIN_HALL_ID ? ['Stand 1', 'Stand Upgrade First', 'Stand Upgrade Second'][tierOf(s) - 1] : 'Stand 1';
+    return { look: { model: 'townhall', anim }, face: '⚑', title: p?.name ?? '' };
+  }
+
   private renderPortrait() {
     const h = this.store.state.hero;
     const points = skillPoints(h);
-    this.portrait3d.setVisible(isMountainKing(h) && !h.fallenAt);
+    const sel = this.sel;
+    const shown = this.portraitOf(sel);
+    void this.portrait3d.show(shown.look);
+    const isHero = sel.kind === 'hero';
+    const tint = isHero && !isMountainKing(h) ? ` style="color:${HERO_KINDS[h.kind!].tint}"` : '';
     setHtml(
       $('portrait-face'),
-      `<span data-action="select-hero" class="${h.fallenAt ? 'fallen' : ''}" ${isMountainKing(h) ? '' : ` style="color:${HERO_KINDS[h.kind!].tint}"`} title="${esc(h.name)}${h.fallenAt ? ': пал' : ''}">${h.fallenAt ? '☠' : HERO_KINDS[h.kind ?? 'mountainking'].short}</span>` +
+      `<span data-action="${isHero ? 'select-hero' : 'portrait'}" class="${isHero && h.fallenAt ? 'fallen' : ''}"${tint} title="${esc(shown.title)}${isHero && h.fallenAt ? ': пал' : ''}">${shown.face}</span>` +
         (points ? `<b class="skill-badge" data-action="learn" title="Очков навыка: ${points}">+</b>` : ''),
     );
     setHtml(
@@ -1129,11 +1197,22 @@ export class Hud {
       if (p) html = this.baseInfo(p);
     } else if (sel.kind === 'group') {
       html = this.groupInfo(sel.ids, sel.hero);
+    } else if (sel.kind === 'foe') {
+      html = this.foeInfo(sel.baseId, sel.foe);
     } else {
       const t = this.store.task(sel.id);
       if (t) html = this.taskInfo(t);
     }
     setHtml($('info'), `<div class="info">${html}</div>`);
+  }
+
+  /** Враг у вражеской крепости: врата или их стража. Приказов ему не отдать. */
+  private foeInfo(baseId: string, foe: Foe): string {
+    const p = this.store.project(baseId);
+    const f = FOES[foe];
+    if (!p) return '';
+    const hp = foe === 'gate' ? bar('hp', p.fortressHp, p.fortressMaxHp, `Здоровье ${p.fortressHp} / ${p.fortressMaxHp}`) : '';
+    return `<h3 class="foe">${f.name}</h3><div class="row">Враг · проект <b>${esc(p.name)}</b></div>${hp}<div class="row">${f.about}</div>`;
   }
 
   /**
@@ -1232,7 +1311,7 @@ export class Hud {
         : '') +
       (p.id === MAIN_HALL_ID ? this.techInfo() : '') +
       (p.id === 'main' && portalSize(s)
-        ? `<div class="row legion">☠ Портал Легиона: ${portalSize(s)} неразобранных свитков старше ${BALANCE.portalScrollDays} дней</div>`
+        ? `<div class="row legion">☠ Портал Легиона: ${portalSize(s)} неразобранных задач старше ${BALANCE.portalScrollDays} дней</div>`
         : '') +
       (demons.length && !p.capturedAt
         ? `<div class="row legion">☠ Легион у базы: ${demons.length} · добыча −${Math.min(100, Math.round(BALANCE.demonMiningPenalty * demons.length * 100))}%${demons.length >= BALANCE.demonsToHide ? ', рабочие спрятались' : ''}</div>`
@@ -1267,7 +1346,7 @@ export class Hud {
 
   private taskInfo(t: Task): string {
     const s = this.store.state;
-    const status = { inbox: 'Свиток во входящих', hired: 'В казарме', active: 'В бою', done: 'Выполнена', cancelled: 'Отменена' }[t.status];
+    const status = { inbox: 'Во входящих', hired: 'В казарме', active: 'В бою', done: 'Выполнена', cancelled: 'Отменена' }[t.status];
     const unit = t.level ? `${UNITS[t.level].name} · ${UNITS[t.level].hint} · ${reward(this.store.state, UNITS[t.level].xp, 'xp')} опыта` : 'Уровень не выбран';
     let html = `<h3>${esc(t.title)}</h3><div class="row"><b>${status}</b> · ${unit}</div>`;
     if (isDemon(t)) {
@@ -1346,7 +1425,7 @@ export class Hud {
       run: () => this.store.unfreezeProject(p.id),
     };
     const cmds: (Command | null)[] = [
-      { icon: '✚', btn: 'scroll', hotkey: 'Q', title: 'Новый свиток', text: 'Записать новое дело во входящие.', run: () => this.focusNewScroll() },
+      { icon: '✚', btn: 'scroll', hotkey: 'Q', title: 'Новая задача', text: 'Записать новое дело во входящие.', run: () => this.focusNewScroll() },
       p.frozen ? thaw : {
         icon: '⚑',
         btn: 'move',
@@ -1415,7 +1494,7 @@ export class Hud {
         btn: 'tome',
         hotkey: 'J',
         title: 'Разобрать входящие',
-        text: 'Все неразобранные свитки в одном окне: проект, уровень и срок сразу, ненужные в огонь.',
+        text: 'Все неразобранные задачи в одном окне: проект, уровень и срок сразу, ненужные в огонь.',
         enabled: s.tasks.some((t) => t.status === 'inbox'),
         run: () => openTriage(this.store),
       },
@@ -1839,6 +1918,10 @@ export class Hud {
       if (t) cmds = this.taskCommands(t);
     } else if (sel.kind === 'hero') {
       cmds = this.learning ? this.learnCommands() : this.heroCommands();
+    } else if (sel.kind === 'foe') {
+      // Врагу приказов не отдать, как в WC3: только вернуться к своей базе.
+      cmds = Array.from({ length: 11 }, () => ({ icon: '', hotkey: '', title: '', text: '', enabled: false, run: () => {} }));
+      cmds.push({ icon: '↩', btn: 'cancel', hotkey: 'Esc', title: 'Назад', text: 'Снять выделение и вернуться к базе.', run: () => this.select({ kind: 'base', id: sel.baseId }) });
     } else {
       const p = this.contextBase();
       if (p) cmds = this.building && p.id === MAIN_HALL_ID ? this.buildCommands() : this.baseCommands(p);

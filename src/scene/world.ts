@@ -33,7 +33,7 @@ import { ARCHIMONDE_LOOK, BossFx, DREADLORD_LOOK } from './boss';
 import { BUILDING_SPOTS } from './buildings';
 import { LATE_MODELS, MODEL_NAMES, ModelLibrary, type ModelName } from './library';
 import { MAX_SCALE, Pacer } from './pacer';
-import { SelectionFx, type Target, type UnitNode } from './selection';
+import { SelectionFx, type Foe, type Target, type UnitNode } from './selection';
 import { HpBars, NameTags, type Bar } from './hpbars';
 import { turnTowards, type ModelInstance } from './models';
 import * as P from './placeholders';
@@ -155,6 +155,8 @@ export class World {
   /** Выбранные юниты задач и герой: под ними зелёные круги. */
   private selTasks: string[] = [];
   private selHero = false;
+  /** Выбранный враг у крепости: врата или их стража, под ним красный круг. */
+  private selFoe: { baseId: string; foe: Foe } | null = null;
   /** Что под курсором мыши; ищется заново, только когда мышь сдвинулась. */
   private hovered: Target | null = null;
   private hoverDirty = false;
@@ -170,6 +172,8 @@ export class World {
   onSelectBase: (id: string | null, building?: string) => void = () => {};
   onSelectTask: (id: string) => void = () => {};
   onSelectHero: () => void = () => {};
+  /** Щелчок по вратам демонов или их страже. */
+  onSelectFoe: (baseId: string, foe: Foe) => void = () => {};
   /** Рамка мышью захватила несколько своих юнитов (и, может быть, героя). */
   onSelectGroup: (taskIds: string[], hero: boolean) => void = () => {};
   /** Правый клик по базе при выбранном герое: приказ идти туда. */
@@ -620,8 +624,9 @@ export class World {
     this.canvas.addEventListener('pointerup', (e) => {
       if (e.button !== 0 || this.touchDragged) return;
       const pick = this.scene.pick(e.offsetX, e.offsetY);
-      const meta = pick?.pickedMesh?.metadata as { baseId?: string; taskId?: string; hero?: boolean; building?: string } | null;
+      const meta = pick?.pickedMesh?.metadata as { baseId?: string; taskId?: string; hero?: boolean; building?: string; foe?: Foe } | null;
       if (meta?.hero) return this.onSelectHero();
+      if (meta?.foe && meta.baseId) return this.onSelectFoe(meta.baseId, meta.foe);
       if (meta?.taskId) {
         // Shift добавляет юнит к выбору, двойной клик выбирает всех того же уровня на экране.
         if (e.shiftKey) return this.onToggleUnit(meta.taskId);
@@ -700,6 +705,11 @@ export class World {
   selectUnits(taskIds: string[], hero: boolean) {
     this.selTasks = taskIds;
     this.selHero = hero;
+  }
+
+  /** Красный круг под выбранным врагом у крепости. */
+  selectFoe(foe: { baseId: string; foe: Foe } | null) {
+    this.selFoe = foe;
   }
 
   /** Все юниты задач на сцене. */
@@ -793,14 +803,18 @@ export class World {
   private pickHover(): Target | null {
     const r = this.canvas.getBoundingClientRect();
     const pick = this.scene.pick(this.mouse.x - r.left, this.mouse.y - r.top);
-    const meta = pick?.pickedMesh?.metadata as { baseId?: string; taskId?: string; hero?: boolean } | null;
+    const meta = pick?.pickedMesh?.metadata as { baseId?: string; taskId?: string; hero?: boolean; foe?: Foe } | null;
     const u = meta?.taskId ? this.units().find((x) => x.taskId === meta.taskId) : undefined;
     const p = meta?.baseId ? this.store.project(meta.baseId) : null;
-    // Курсор WC3: красная перчатка над врагом (демоны, база в руках Легиона), зелёная над своим.
-    const cursor = u?.enemy || (!u && p?.capturedAt) ? 'enemy' : meta?.hero || u || p ? 'own' : '';
+    // Курсор WC3: красная перчатка над врагом (демоны, врата и их стража, база в руках Легиона), зелёная над своим.
+    const cursor = u?.enemy || meta?.foe || (!u && p?.capturedAt) ? 'enemy' : meta?.hero || u || p ? 'own' : '';
     if (document.body.dataset.cursor !== cursor) document.body.dataset.cursor = cursor;
     if (meta?.hero) return { key: 'hero', node: this.heroNode, size: 3.6 };
-    if (meta?.taskId) return u ? { key: u.taskId, node: u.node, size: u.size } : null;
+    if (meta?.taskId) return u ? { key: u.taskId, node: u.node, size: u.size, enemy: u.enemy } : null;
+    if (meta?.foe && p) {
+      const f = this.bases.get(p.id)?.foe(meta.foe);
+      if (f) return { key: `foe:${p.id}:${meta.foe}`, ...f, enemy: true };
+    }
     if (p && p.id !== this.selected) return { key: 'base:' + p.id, node: null, at: new Vector3(p.slot.x, 0, p.slot.z), size: 17 };
     return null;
   }
@@ -831,7 +845,12 @@ export class World {
     } else if (this.hovered) {
       const h = this.hovered;
       if (h.key === 'hero') heroBar();
-      else if (h.key.startsWith('base:')) {
+      else if (h.key.startsWith('foe:')) {
+        // Врата показывают здоровье крепости, стража всегда цела.
+        const [, id, foe] = h.key.split(':');
+        const p = this.store.project(id);
+        if (h.node && p) bars.push({ node: h.node, lift: foe === 'gate' ? 12 : 4.5, health: foe === 'gate' ? p.fortressHp / Math.max(1, p.fortressMaxHp) : 1, width: foe === 'gate' ? 90 : 34 });
+      } else if (h.key.startsWith('base:')) {
         const p = this.store.project(h.key.slice(5));
         if (p) hallBar(p);
       } else {
@@ -870,9 +889,13 @@ export class World {
     const targets: Target[] = [];
     if (this.selTasks.length) {
       const want = new Set(this.selTasks);
-      for (const u of this.units()) if (want.has(u.taskId)) targets.push({ key: u.taskId, node: u.node, size: u.size });
+      for (const u of this.units()) if (want.has(u.taskId)) targets.push({ key: u.taskId, node: u.node, size: u.size, enemy: u.enemy });
     }
     if (this.selHero) targets.push({ key: 'hero', node: this.heroNode, size: 3.6 });
+    if (this.selFoe) {
+      const f = this.bases.get(this.selFoe.baseId)?.foe(this.selFoe.foe);
+      if (f) targets.push({ key: `foe:${this.selFoe.baseId}:${this.selFoe.foe}`, ...f, enemy: true });
+    }
     this.selFx.draw(targets, this.hovered);
   }
 

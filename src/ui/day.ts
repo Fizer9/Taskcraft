@@ -11,7 +11,7 @@ function esc(s: string): string {
 }
 
 function label(t: Task): string {
-  const unit = t.level ? UNITS[t.level].name : 'свиток';
+  const unit = t.level ? UNITS[t.level].name : 'задача';
   const demon = isDemon(t) ? ` · ☠ ${DEMONS[demonRank(t)].name}` : t.due ? ` · срок ${t.due.slice(8)}.${t.due.slice(5, 7)}` : '';
   return `${t.title} (${unit}${demon})`;
 }
@@ -43,7 +43,7 @@ export function openPlanning(store: Store, onLater: () => void = () => {}) {
     `<h3>Утреннее планирование</h3>` +
       `<div class="plan-report">${report.length ? report.map((l) => `<div>☠ ${esc(l)}</div>`).join('') : '<div>Ночь прошла спокойно, Легион не приходил.</div>'}</div>` +
       `<label>Задачи на сегодня, по одной на проект</label>` +
-      (rows ? `<div class="plan-list">${rows}</div>` : '<div class="hint">Нанятых юнитов пока нет. Запиши свитки и назначь им проект и уровень.</div>') +
+      (rows ? `<div class="plan-list">${rows}</div>` : '<div class="hint">Нанятых юнитов пока нет. Запиши задачи и назначь им проект и уровень.</div>') +
       `<div class="hint">Каждая новая задача в плане даёт +${BALANCE.planLumberPerTask} дерева: дерево платит за план.</div>` +
       `<div class="actions"><button class="btn" data-a="later">Позже</button><button class="btn" data-a="ok">Утвердить план</button></div>`,
     'wide',

@@ -42,7 +42,7 @@ export function openLegion(store: Store, awayDays = 0, onLater: () => void = () 
     const late = t.demonSince ? daysBetween(t.demonSince, today) : 0;
     const acts = ACTS.map(
       (a) =>
-        `<label class="legion-act${a.id === 'done' && !canDo(t) ? ' off' : ''}" title="${a.id === 'done' && !canDo(t) ? 'Свиток без проекта: сначала разбери его во входящих.' : a.title}">` +
+        `<label class="legion-act${a.id === 'done' && !canDo(t) ? ' off' : ''}" title="${a.id === 'done' && !canDo(t) ? 'Задача без проекта: сначала разбери его во входящих.' : a.title}">` +
         `<input type="radio" name="act-${t.id}" value="${a.id}"${a.id === 'keep' ? ' checked' : ''}${a.id === 'done' && !canDo(t) ? ' disabled' : ''}>${a.label}</label>`,
     ).join('');
     return (

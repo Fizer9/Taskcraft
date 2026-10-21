@@ -275,6 +275,17 @@ def parse_mdx(data):
         o, n = chunks['PIVT']
         f = struct.unpack_from('<%df' % (n // 4), data, o)
         m['pivots'] = [f[i:i + 3] for i in range(0, len(f), 3)]
+    # Камера портрета (CAMS): берём первую, координаты MDX. Портрет в консоли ставит по ней свою камеру.
+    m['camera'] = None
+    if 'CAMS' in chunks:
+        o, n = chunks['CAMS']
+        if n >= 120:
+            r = Reader(data, o + 4)
+            name = r.string(80)
+            pos = list(struct.unpack_from('<3f', data, o + 84))
+            fov, far, near = struct.unpack_from('<3f', data, o + 96)
+            target = list(struct.unpack_from('<3f', data, o + 108))
+            m['camera'] = {'name': name, 'pos': pos, 'target': target, 'fov': fov, 'near': near}
     return m
 
 
@@ -600,7 +611,8 @@ def convert(mdx_path, out_path, roots, tex_size, team_color=(0, 66, 255), replac
     for gi, g in enumerate(m['geosets']):
         if g.get('lod', 0) != 0:
             continue  # только самый детальный уровень
-        if portrait and (visible.get(gi) == [] or 'portrait_bg' in material_texture(g['material'])):
+        # В портрете не нужны задник, кишки и труп: они видны только в анимации смерти.
+        if portrait and (visible.get(gi) == [] or any(k in material_texture(g['material']) for k in ('portrait_bg', 'gore', 'corpse'))):
             continue
         pos = g['positions']
         count = len(pos) // 3
@@ -701,6 +713,8 @@ def convert(mdx_path, out_path, roots, tex_size, team_color=(0, 66, 255), replac
         'mdxVersion': m['version'],
         'sequences': [{'name': s['name'], 'duration': (s['end'] - s['start']) / 1000, 'loop': s['loop']} for s in seqs],
     }
+    if m.get('camera'):
+        J['scenes'][0]['extras']['camera'] = m['camera']
     gl.write(out_path)
     return m, seqs
 

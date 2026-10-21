@@ -105,7 +105,7 @@ export function openProject(store: Store, id: string | null, onDone: (id: string
     const answer = await ask(
       'Удалить проект?',
       `База «${esc(p!.name)}» исчезнет с карты.` +
-        (open ? ` Открытые задачи (${open}) вернутся свитками во входящие.` : '') +
+        (open ? ` Открытые задачи (${open}) вернутся во входящие.` : '') +
         (p!.frozen ? '' : ' Если проект просто на паузе, лучше законсервировать базу.'),
       [
         { label: 'Отмена', value: 'no' },

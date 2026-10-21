@@ -29,6 +29,7 @@ const SFX = {
   collapseSmall: 'sound/collapse-small.mp3',
   place: 'sound/place.mp3',
   hammer: 'sound/hammer.mp3',
+  explode: 'sound/explode.mp3',
 } as const;
 type Sfx = keyof typeof SFX;
 

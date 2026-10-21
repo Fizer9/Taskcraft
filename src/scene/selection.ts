@@ -1,5 +1,5 @@
-// Выделение, как в WC3: зелёный круг под каждым выбранным, бледный круг под тем, что
-// под курсором. Круги плоские и лежат на земле, у летунов тоже.
+// Выделение, как в WC3: зелёный круг под каждым выбранным своим, красный под врагом, бледный
+// круг под тем, что под курсором. Круги плоские и лежат на земле, у летунов тоже.
 
 import { Color3, DynamicTexture, Mesh, MeshBuilder, Scene, StandardMaterial, Texture, TransformNode, Vector3 } from '@babylonjs/core';
 
@@ -10,7 +10,12 @@ export interface Target {
   /** Точка на земле, если у цели нет своего узла (база). */
   at?: Vector3;
   size: number;
+  /** Враг: круг красный. */
+  enemy?: boolean;
 }
+
+/** Враги у крепости, на которых можно щёлкнуть: врата демонов и их стража. */
+export type Foe = 'gate' | 'hound1' | 'hound2' | 'felguard';
 
 /** Юнит на сцене для выделения рамкой и кругов. */
 export interface UnitNode {
@@ -26,25 +31,31 @@ export class SelectionFx {
   private hover: Mesh;
   private mat: StandardMaterial;
   private hoverMat: StandardMaterial;
+  private enemyMat: StandardMaterial;
+  private enemyHoverMat: StandardMaterial;
 
   constructor(private scene: Scene) {
     this.mat = ringMaterial(scene, 'selRing', 1);
     this.hoverMat = ringMaterial(scene, 'hoverRing', 0.45);
+    this.enemyMat = ringMaterial(scene, 'enemyRing', 1, '#ff2b2b');
+    this.enemyHoverMat = ringMaterial(scene, 'enemyHoverRing', 0.45, '#ff2b2b');
     this.hover = this.ring(this.hoverMat);
   }
 
   /** Круг выделения из файлов игры, когда он загрузится. */
   useTexture(tex: Texture) {
-    for (const m of [this.mat, this.hoverMat]) m.diffuseTexture = tex;
+    for (const m of [this.mat, this.hoverMat, this.enemyMat, this.enemyHoverMat]) m.diffuseTexture = tex;
   }
 
   draw(selected: Target[], hover: Target | null) {
     while (this.rings.length < selected.length) this.rings.push(this.ring(this.mat));
     this.rings.forEach((r, i) => {
       const t = selected[i];
+      if (t) r.material = t.enemy ? this.enemyMat : this.mat;
       r.isVisible = !!t && this.place(r, t);
     });
     const dup = hover && selected.some((t) => t.key === hover.key);
+    if (hover) this.hover.material = hover.enemy ? this.enemyHoverMat : this.hoverMat;
     this.hover.isVisible = !!hover && !dup && this.place(this.hover, hover);
   }
 
@@ -65,8 +76,8 @@ export class SelectionFx {
   }
 }
 
-/** Зелёное кольцо, нарисованное на холсте: пока не загружен круг из игры. */
-function ringMaterial(scene: Scene, name: string, alpha: number): StandardMaterial {
+/** Кольцо, нарисованное на холсте: пока не загружен круг из игры. */
+function ringMaterial(scene: Scene, name: string, alpha: number, color = '#2bff2b'): StandardMaterial {
   const tex = new DynamicTexture(name + 'Tex', 128, scene, true);
   const ctx = tex.getContext() as CanvasRenderingContext2D;
   ctx.clearRect(0, 0, 128, 128);
@@ -82,7 +93,7 @@ function ringMaterial(scene: Scene, name: string, alpha: number): StandardMateri
   m.useAlphaFromDiffuseTexture = true;
   m.disableLighting = true;
   m.diffuseColor = Color3.Black();
-  m.emissiveColor = Color3.FromHexString('#2bff2b');
+  m.emissiveColor = Color3.FromHexString(color);
   m.alpha = alpha;
   m.backFaceCulling = false;
   return m;

@@ -149,7 +149,7 @@ export class Store {
   /** Новый свиток. Если сразу указаны проект и уровень, юнит сразу нанят. */
   addTask(title: string, projectId: string | null = null, level: Level | null = null): Task {
     if (level && level > maxLevel(this.state)) {
-      this.say('Задачи 4 уровня ведут грифоны: нужно грифонье гнездо (замок). Свиток лёг во входящие без уровня.', 'warn');
+      this.say('Задачи 4 уровня ведут грифоны: нужно грифонье гнездо (замок). Задача легла во входящие без уровня.', 'warn');
       level = null;
     }
     const t: Task = {
@@ -288,7 +288,7 @@ export class Store {
     t.cancelledAt = Date.now();
     if (t.repeat) this.say(`Серия «${t.title}» остановлена.`);
     const d = DEMONS[demonRank(t)];
-    this.say(wasDemon ? `${d.name} ${d.fem ? 'изгнана' : 'изгнан'}. Честный отказ лучше висящего долга.` : wasScroll ? 'Свиток сожжён.' : 'Юнит распущен.');
+    this.say(wasDemon ? `${d.name} ${d.fem ? 'изгнана' : 'изгнан'}. Честный отказ лучше висящего долга.` : wasScroll ? 'Задача сожжена.' : 'Юнит распущен.');
     this.emit();
   }
 
@@ -1410,7 +1410,7 @@ export class Store {
       t.demonRank = rank;
     }
     const portal = portalSize(s, now);
-    if (portal) this.say(`У главной ратуши открыт портал Легиона: ${portal} неразобранных свитков старше ${BALANCE.portalScrollDays} дней. Разбери входящие.`, 'warn', fresh ? undefined : 'legion');
+    if (portal) this.say(`У главной ратуши открыт портал Легиона: ${portal} неразобранных задач старше ${BALANCE.portalScrollDays} дней. Разбери входящие.`, 'warn', fresh ? undefined : 'legion');
     if (fresh) this.say(`Ночью пришёл Пылающий Легион: ${fresh} ${plural(fresh, 'новый демон', 'новых демона', 'новых демонов')}.`, 'warn', 'legion');
     for (const g of grown) this.say(`Демон вырос. ${g}`, 'warn');
     // Метеоры: предупреждение о сроке большой задачи.
