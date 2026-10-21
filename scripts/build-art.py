@@ -6,13 +6,15 @@
 Берёт файлы из выгрузки CascView и пишет PNG в assets-src/ (папка в .gitignore):
   assets-src/terrain/<тайл>.png  — атласы земли Лордерона 1024×512 (8×4 клетки по 128 px);
   assets-src/ui/console.png      — рамка интерфейса людей целиком (верхняя полоса и консоль);
-  assets-src/ui/*.png            — иконки ресурсов, фоны и рамки окон, подсказок и кнопок.
+  assets-src/ui/*.png            — иконки ресурсов, фоны и рамки окон, подсказок и кнопок;
+  assets-src/ui/btn-atlas.png    — иконки команд (BTN) одним атласом, список в src/ui/btn-icons.ts.
 Дальше их, как и модели, шифрует npm run encrypt-assets.
 
 Нужны Pillow и numpy: python -m pip install pillow numpy
 """
 import argparse
 import os
+import re
 import sys
 
 import numpy as np
@@ -98,7 +100,7 @@ class Missing(Exception):
 
 def load(root, rel):
     for mod in ('_de.w3mod', '_hd.w3mod', ''):
-        for ext in ('.dds', '.png', '.jpg'):
+        for ext in ('.dds', '.blp', '.png', '.jpg'):
             p = os.path.join(root, mod, rel + ext)
             if os.path.exists(p):
                 im = Image.open(p)
@@ -155,6 +157,26 @@ def build_cursor(root, out):
         lum = b[..., :3].mean(-1, keepdims=True)
         b[..., :3] = np.clip(lum * np.array(tint) * 1.25, 0, 255)
         save(Image.fromarray(b.astype(np.uint8), 'RGBA'), os.path.join(out, 'ui', name + '.png'))
+
+
+# Иконки команд: список и порядок в атласе задаёт src/ui/btn-icons.ts, по 64 px, 8 в ряд.
+BTN_LIST = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'src', 'ui', 'btn-icons.ts')
+BTN_SIZE = 64
+
+
+def build_btn_atlas(root, out):
+    src = open(BTN_LIST, encoding='utf-8').read()
+    names = re.findall(r"'([a-z0-9&]+)'", src[src.index('BTN_ICONS'):src.index('] as const')])
+    cols = int(re.search(r'BTN_COLUMNS = (\d+)', src).group(1))
+    rows = (len(names) + cols - 1) // cols
+    atlas = Image.new('RGBA', (cols * BTN_SIZE, rows * BTN_SIZE))
+    for i, name in enumerate(names):
+        try:
+            im = load(root, 'replaceabletextures/commandbuttons/btn' + name)
+        except Missing:
+            continue
+        atlas.paste(im.resize((BTN_SIZE, BTN_SIZE), Image.LANCZOS), ((i % cols) * BTN_SIZE, (i // cols) * BTN_SIZE))
+    save(atlas, os.path.join(out, 'ui', 'btn-atlas.png'))
 
 
 def save(im, path):
@@ -264,6 +286,7 @@ def main():
     step(lambda: build_console(args.root, args.out))
     step(lambda: build_selection(args.root, args.out))
     step(lambda: build_cursor(args.root, args.out))
+    step(lambda: build_btn_atlas(args.root, args.out))
     if MISSING:
         print('Нет в выгрузке (пропущено): ' + ', '.join(MISSING), file=sys.stderr)
 

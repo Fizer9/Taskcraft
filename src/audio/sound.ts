@@ -84,10 +84,12 @@ const WARNINGS: Partial<Record<Cue, { path: string; fallback?: [Voice, Line, num
   nogold: { path: 'sound/warning/nogold.mp3' },
   nolumber: { path: 'sound/warning/nolumber.mp3' },
   nofood: { path: 'sound/warning/nofood.mp3' },
+  // «Наш город атакован!»: ночью пришёл Легион.
+  legion: { path: 'sound/warning/townattack.mp3' },
 };
 
-/** Звук выбора здания; без файла звучит щелчок интерфейса. */
-const BUILDING_WHAT = 'sound/buildings/townhallwhat.mp3';
+/** Звук выбора здания: sound/buildings/<здание>what.mp3; без файла звучит щелчок интерфейса. */
+const buildingWhat = (building: string) => `sound/buildings/${building}what.mp3`;
 
 /** Сколько реплик каждого вида в русской озвучке: sound/voice/<юнит><вид><номер>.mp3. */
 const VOICES = {
@@ -183,10 +185,18 @@ class SoundBoard {
     return !!url;
   }
 
-  /** Щелчок по зданию на карте. */
-  async selectBuilding() {
+  /**
+   * Голосовое предупреждение не по событию игры, а по состоянию: «Золотая шахта истощается»,
+   * «Наш герой пал». Без файла звучит запасной звук, если он есть.
+   */
+  async warning(name: 'goldminelow' | 'herodies', fallback?: Sfx) {
+    if (!(await this.warn(`sound/warning/${name}.mp3`)) && fallback) void this.play(fallback);
+  }
+
+  /** Щелчок по зданию на карте: ратуша, ферма, казарма, кузница и другие отвечают своим звуком. */
+  async selectBuilding(building = 'townhall') {
     if (this.volume.sfx <= 0) return;
-    const url = await this.url(BUILDING_WHAT);
+    const url = (await this.url(buildingWhat(building))) ?? (await this.url(buildingWhat('townhall')));
     if (!url) return void this.play('click');
     const a = new Audio(url);
     a.volume = this.volume.sfx;

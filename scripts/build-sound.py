@@ -2,7 +2,8 @@
 """
 Звуки WC3 для сайта: перекодирует нужные .flac из выгрузки в небольшие .mp3 в assets-src/sound/
 (оттуда их шифрует encrypt-assets, как модели). Голоса юнитов берёт из _locales/<язык>.w3mod
-и кладёт в assets-src/sound/voice/. Нужен ffmpeg.
+и кладёт в assets-src/sound/voice/, голосовые предупреждения в sound/warning/, отклик зданий
+в sound/buildings/. Нужен ffmpeg.
 
     python scripts/build-sound.py --root work/war3.w3mod --lang ruru
 """
@@ -51,6 +52,31 @@ MUSIC = {
     'human3': 'sound/music/mp3music/human3',
 }
 
+# Отклик зданий на щелчок: имя в игре → путь в корне выгрузки (классические .ogg, их нет в _de.w3mod).
+BUILDINGS = {
+    'townhall': 'buildings/human/townhall/townhallwhat1',
+    'keep': 'buildings/human/townhall/keepwhat1',
+    'castle': 'buildings/human/townhall/castlewhat1',
+    'farm': 'buildings/human/farm/farmwhat1',
+    'barracks': 'buildings/human/humanbarracks/humanbarrackswhat1',
+    'altar': 'buildings/human/altarofkings/altarofkingswhat1',
+    'lumbermill': 'buildings/human/humanlumbermill/humanlumbermillwhat1',
+    'blacksmith': 'buildings/human/blacksmith/blacksmithwhat1',
+    'workshop': 'buildings/human/workshop/workshopwhat1',
+    'towers': 'buildings/human/humantower/guardtowerwhat1',
+    'aviary': 'buildings/human/gryphonaviary/gryphonaviarywhat1',
+    'vault': 'buildings/human/arcanevault/arcanevaultwhat1',
+}
+# Голосовые предупреждения людей (_locales/<язык>.w3mod/sound/interface/warning/human).
+WARNINGS = {
+    'nogold': 'knightnogold1',
+    'nolumber': 'knightnolumber1',
+    'nofood': 'knightnofood1',
+    'goldminelow': 'knightgoldminelow1',
+    'townattack': 'knighttownattack1',
+    'herodies': 'knightherodies1',
+}
+
 # юниты, чьи голоса нужны игре (папки в _locales/<язык>.w3mod/units/human)
 VOICES = ['peasant', 'footman', 'rifleman', 'knight', 'gryphonrider', 'heromountainking']
 # какие реплики: готов, да, в атаку, что, клич и «надоел» после частых кликов
@@ -80,6 +106,19 @@ def main():
                 missing.append(rel)
                 continue
             convert(src, os.path.join(args.out, 'sound', name + '.mp3'), bitrate, mono)
+    for name, rel in BUILDINGS.items():
+        src = os.path.join(args.root, rel + '.ogg')
+        if not os.path.exists(src):
+            missing.append(rel)
+            continue
+        convert(src, os.path.join(args.out, 'sound', 'buildings', name + 'what.mp3'), '64k', True)
+    warnings = os.path.join(args.root, '_locales', args.lang + '.w3mod', 'sound', 'interface', 'warning', 'human')
+    for name, file in WARNINGS.items():
+        src = os.path.join(warnings, file + '.ogg')
+        if not os.path.exists(src):
+            missing.append(os.path.join('_locales', args.lang + '.w3mod', 'sound', 'interface', 'warning', 'human', file))
+            continue
+        convert(src, os.path.join(args.out, 'sound', 'warning', name + '.mp3'), '64k', True)
     voices = os.path.join(args.root, '_locales', args.lang + '.w3mod', 'units', 'human')
     for unit in VOICES:
         folder = os.path.join(voices, unit)

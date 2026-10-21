@@ -166,7 +166,8 @@ export class World {
   private lakeDecor: TransformNode[] = [];
   /** Уровень героя по прошлой синхронизации: новый уровень зажигает столб света. */
   private heroLevel = 0;
-  onSelectBase: (id: string | null) => void = () => {};
+  /** building: какое здание базы под курсором (для звука отклика), если щёлкнули по зданию. */
+  onSelectBase: (id: string | null, building?: string) => void = () => {};
   onSelectTask: (id: string) => void = () => {};
   onSelectHero: () => void = () => {};
   /** Рамка мышью захватила несколько своих юнитов (и, может быть, героя). */
@@ -619,7 +620,7 @@ export class World {
     this.canvas.addEventListener('pointerup', (e) => {
       if (e.button !== 0 || this.touchDragged) return;
       const pick = this.scene.pick(e.offsetX, e.offsetY);
-      const meta = pick?.pickedMesh?.metadata as { baseId?: string; taskId?: string; hero?: boolean } | null;
+      const meta = pick?.pickedMesh?.metadata as { baseId?: string; taskId?: string; hero?: boolean; building?: string } | null;
       if (meta?.hero) return this.onSelectHero();
       if (meta?.taskId) {
         // Shift добавляет юнит к выбору, двойной клик выбирает всех того же уровня на экране.
@@ -633,7 +634,7 @@ export class World {
       const id = meta?.baseId ?? null;
       if (id) {
         this.select(id);
-        this.onSelectBase(id);
+        this.onSelectBase(id, meta?.building);
       }
     });
   }

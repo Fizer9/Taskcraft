@@ -1314,3 +1314,28 @@ body.wc3 #menu-btn[data-sync='syncing']::after { content: ' …'; }
 #portrait.has-3d #portrait-face > span:not(.fallen) { position: absolute; inset: 0; font-size: 0; }
 body.art-queue-border .group-cell, body.art-queue-border .queue-slot { isolation: isolate; }
 body.art-queue-border .group-cell::before, body.art-queue-border .queue-slot::before { z-index: -1; }
+
+/* Иконки команд WC3 из атласа (src/ui/btn-icons.ts). Пока атласа нет, на кнопках символы. */
+.btn-art { display: none; }
+body.art-btn-atlas .btn-art {
+  display: block;
+  position: absolute;
+  inset: 0;
+  background-image: var(--art-btn-atlas);
+  background-repeat: no-repeat;
+  pointer-events: none;
+  box-shadow: inset 0 0 0 1px #000;
+}
+body.art-btn-atlas .btn-art ~ .glyph,
+body.art-btn-atlas .hero-btn .btn-art ~ .face { display: none; }
+.cmd .hk, .inv-slot b, .hero-btn b, .hero-btn i.hp, .hero-btn i.mp, #idle-bases b { z-index: 1; }
+body.art-btn-atlas .cmd .hk { text-shadow: 0 0 2px #000, 0 1px 2px #000; }
+/* Иконка лежит в рамке ячейки, как в игре: у кнопок консоли тонкий отступ. */
+body.art-btn-atlas.wc3 .cmd .btn-art { inset: calc(3 * var(--u)); }
+body.art-btn-atlas .inv-slot .btn-art { inset: calc(6 * var(--u, 1px)); }
+body.art-btn-atlas .queue-slot .btn-art { inset: 10%; }
+body.art-btn-atlas .hero-btn .btn-art { left: 0; height: auto; max-width: none; bottom: 12px; }
+.hero-btn.fallen .btn-art { filter: grayscale(1) brightness(0.6); }
+.info .spell em { z-index: 1; text-shadow: 0 0 2px #000, 0 1px 2px #000; }
+.info .spell.locked .btn-art { filter: grayscale(1); }
+.info .spell.cooldown .btn-art { filter: brightness(0.45); }

@@ -90,17 +90,53 @@ import {
 import { openProject } from './project';
 import { openQuests } from './quests';
 import { Portrait3D } from './portrait3d';
+import { btnArt, type BtnIcon } from './btn-icons';
 
 type Selection = { kind: 'base'; id: string } | { kind: 'task'; id: string } | { kind: 'hero' } | { kind: 'group'; ids: string[]; hero: boolean };
 
 interface Command {
   icon: string;
+  /** Иконка команды из WC3; пока атлас не загружен, на кнопке виден icon. */
+  btn?: BtnIcon;
   hotkey: string;
   title: string;
   cost?: string;
   text: string;
   enabled?: boolean;
   run: () => void;
+}
+
+/** Иконки зданий и улучшений строительства; у кузницы своя на каждую ступень. */
+const TECH_BTN: Record<TechId, BtnIcon | BtnIcon[]> = {
+  lumbermill: 'humanlumbermill',
+  keep: 'keep',
+  workshop: 'workshop',
+  blacksmith: 'blacksmith',
+  towers: 'guardtower',
+  castle: 'castle',
+  aviary: 'gryphonaviary',
+  vault: 'arcanevault',
+  armor: ['humanarmorupone', 'humanarmoruptwo', 'humanarmorupthree'],
+  weapons: ['steelmelee', 'thoriummelee', 'arcanitemelee'],
+};
+/** Способности героев по классам, в порядке клавиш Q W E R. */
+const SPELL_BTN: Record<HeroKind, BtnIcon[]> = {
+  mountainking: ['stormbolt', 'thunderclap', 'bash', 'avatar'],
+  paladin: ['holybolt', 'divineintervention', 'devotion', 'resurrection'],
+  archmage: ['blizzard', 'summonwaterelemental', 'brilliance', 'massteleport'],
+  bloodmage: ['walloffire', 'banish', 'manadrain', 'markoffire'],
+};
+const HERO_BTN: Record<HeroKind, BtnIcon> = { mountainking: 'heromountainking', paladin: 'heropaladin', archmage: 'heroarchmage', bloodmage: 'herobloodelfprince' };
+const UNIT_BTN: Record<Level, BtnIcon> = { 1: 'footman', 2: 'rifleman', 3: 'knight', 4: 'gryphonrider' };
+
+function techBtn(id: TechId, level = 0): BtnIcon {
+  const b = TECH_BTN[id];
+  return Array.isArray(b) ? b[Math.min(level, b.length - 1)] : b;
+}
+
+/** Содержимое кнопки: иконка WC3 и символ под ней на случай, когда атласа нет. */
+function face(icon: string, btn?: BtnIcon): string {
+  return btn ? `${btnArt(btn)}<span class="glyph">${icon}</span>` : icon;
 }
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -221,10 +257,12 @@ export class Hud {
     this.sel = { kind: 'base', id: store.state.hero.baseId };
     this.awayMs = Date.now() - store.state.lastTick;
     this.bootTick = store.state.lastTick;
-    world.onSelectBase = (id) => {
+    world.onSelectBase = (id, building) => {
       if (!id) return;
       this.select({ kind: 'base', id });
-      void sounds.selectBuilding();
+      // Ратуша главной базы отвечает голосом своего тира: крепость, замок.
+      const hall = id === MAIN_HALL_ID ? (['townhall', 'keep', 'castle'] as const)[tierOf(store.state) - 1] : 'townhall';
+      void sounds.selectBuilding(building === 'townhall' || !building ? hall : building);
     };
     world.onSelectTask = (id) => this.pick({ kind: 'task', id });
     world.onSelectHero = () => this.pick({ kind: 'hero' });
@@ -338,7 +376,7 @@ export class Hud {
           return (
             `<button class="hero-btn${h.fallenAt ? ' fallen' : ''}${i ? ' resting' : ''}${i === 0 && (this.sel.kind === 'hero' || (this.sel.kind === 'group' && this.sel.hero)) ? ' on' : ''}" data-action="hero-btn" data-id="${i}" ` +
             `title="${esc(`${h.name}, уровень ${h.level}, ${h.fallenAt ? 'пал' : where} (F${i + 1})`)}">` +
-            `<span class="face"${h.kind && h.kind !== 'mountainking' ? ` style="color:${kind.tint}"` : ''}>${h.fallenAt ? '☠' : kind.short}</span><b>${h.level}</b>` +
+            `${btnArt(HERO_BTN[h.kind ?? 'mountainking'])}<span class="face"${h.kind && h.kind !== 'mountainking' ? ` style="color:${kind.tint}"` : ''}>${h.fallenAt ? '☠' : kind.short}</span><b>${h.level}</b>` +
             `<i class="hp" style="width:${h.fallenAt ? 0 : 100}%"></i><i class="mp" style="width:${((h.mana / Math.max(1, h.maxMana)) * 100).toFixed(0)}%"></i></button>`
           );
         })
@@ -347,7 +385,7 @@ export class Hud {
     const idle = this.idleBases();
     const btn = $<HTMLButtonElement>('idle-bases');
     btn.hidden = !idle.length;
-    const label = `<span>⛏</span><b>${idle.length}</b>`;
+    const label = `${btnArt('peasant')}<span class="glyph">⛏</span><b>${idle.length}</b>`;
     if (btn.dataset.html !== label) {
       btn.innerHTML = label;
       btn.dataset.html = label;
@@ -790,29 +828,29 @@ export class Hud {
     const items: Command[] = [];
     const frog = s.hero.frog?.day === gameDay(s) ? this.store.task(s.hero.frog.taskId) : undefined;
     if (frog && frog.status !== 'done' && frog.status !== 'cancelled')
-      items.push({ icon: '🐸', hotkey: '', title: 'Лягушка дня', text: `«${frog.title}». Сделай её первой из серьёзных задач.`, run: () => this.pick({ kind: 'task', id: frog.id }) });
+      items.push({ icon: '🐸', btn: 'stormbolt', hotkey: '', title: 'Лягушка дня', text: `«${frog.title}». Сделай её первой из серьёзных задач.`, run: () => this.pick({ kind: 'task', id: frog.id }) });
     const plan = s.dayPlan?.day === gameDay(s) ? s.dayPlan.taskIds : [];
     if (plan.length) {
       const done = plan.filter((id) => this.store.task(id)?.status === 'done').length;
-      items.push({ icon: '📜', hotkey: `${done}/${plan.length}`, title: 'План на день', text: `Сделано ${done} из ${plan.length}. Открыть планирование.`, run: () => openPlanning(this.store) });
+      items.push({ icon: '📜', btn: 'scroll', hotkey: `${done}/${plan.length}`, title: 'План на день', text: `Сделано ${done} из ${plan.length}. Открыть планирование.`, run: () => openPlanning(this.store) });
     }
     const goals = s.week?.start === weekStart(s) ? s.week.goals : [];
     if (goals.length) {
       const done = goals.filter((g) => g.done).length;
-      items.push({ icon: '🎯', hotkey: `${done}/${goals.length}`, title: 'Цели недели', text: goals.map((g) => `${g.done ? '✓' : '·'} ${g.text}`).join('\n'), run: () => openWeek(this.store) });
+      items.push({ icon: '🎯', btn: 'glyph', hotkey: `${done}/${goals.length}`, title: 'Цели недели', text: goals.map((g) => `${g.done ? '✓' : '·'} ${g.text}`).join('\n'), run: () => openWeek(this.store) });
     }
     if (avatarActive(s, s.hero.baseId, now))
-      items.push({ icon: '⚡', hotkey: `${Math.ceil((s.hero.avatar!.until - now) / 60_000)}м`, title: 'Аватар', text: 'Глубокий фокус: добыча на базе героя удвоена.', run: () => this.pick({ kind: 'hero' }) });
+      items.push({ icon: '⚡', btn: 'avatar', hotkey: `${Math.ceil((s.hero.avatar!.until - now) / 60_000)}м`, title: 'Аватар', text: 'Глубокий фокус: добыча на базе героя удвоена.', run: () => this.pick({ kind: 'hero' }) });
     else if (clapActive(s, now))
-      items.push({ icon: '🔨', hotkey: `×${s.hero.clap!.count}`, title: 'Удар грома', text: `Серия мелочей, ещё ${Math.ceil((s.hero.clap!.until - now) / 60_000)} мин.`, run: () => this.pick({ kind: 'hero' }) });
+      items.push({ icon: '🔨', btn: 'thunderclap', hotkey: `×${s.hero.clap!.count}`, title: 'Удар грома', text: `Серия мелочей, ещё ${Math.ceil((s.hero.clap!.until - now) / 60_000)} мин.`, run: () => this.pick({ kind: 'hero' }) });
     const wins = (s.hallOfFame?.length ?? 0) + s.projects.filter((p) => p.id !== MAIN_HALL_ID && p.fortressMaxHp > 0 && p.fortressHp === 0).length;
-    if (wins) items.push({ icon: '🏆', hotkey: String(wins), title: 'Трофеи', text: `Выигранных миссий: ${wins}. Открыть зал славы.`, run: () => openHall(this.store) });
-    if (s.dreadlordsSlain) items.push({ icon: '💀', hotkey: String(s.dreadlordsSlain), title: 'Черепа повелителей ужаса', text: `Повержено повелителей ужаса: ${s.dreadlordsSlain}.`, run: () => openHall(this.store) });
+    if (wins) items.push({ icon: '🏆', btn: 'chestofgold', hotkey: String(wins), title: 'Трофеи', text: `Выигранных миссий: ${wins}. Открыть зал славы.`, run: () => openHall(this.store) });
+    if (s.dreadlordsSlain) items.push({ icon: '💀', btn: 'herodreadlord', hotkey: String(s.dreadlordsSlain), title: 'Черепа повелителей ужаса', text: `Повержено повелителей ужаса: ${s.dreadlordsSlain}.`, run: () => openHall(this.store) });
     this.slotItems = items.slice(0, 6);
     let html = '';
     for (let i = 0; i < 6; i++) {
       const c = this.slotItems[i];
-      html += c ? `<button class="inv-slot" data-action="slot" data-id="${i}" aria-label="${esc(c.title)}">${c.icon}${c.hotkey ? `<b>${esc(c.hotkey)}</b>` : ''}</button>` : '<div class="inv-slot empty"></div>';
+      html += c ? `<button class="inv-slot" data-action="slot" data-id="${i}" aria-label="${esc(c.title)}">${face(c.icon, c.btn)}${c.hotkey ? `<b>${esc(c.hotkey)}</b>` : ''}</button>` : '<div class="inv-slot empty"></div>';
     }
     setHtml($('inventory'), html);
 
@@ -1142,7 +1180,7 @@ export class Hud {
       const rank = rankOf(h, id);
       const cd = cooldownUntil(s, id, day);
       const cls = !rank ? ' locked' : cd ? ' cooldown' : '';
-      return `<span class="spell${cls}" title="${esc(a.name)}: ${esc(a.trick)}">${a.icon}<em>${a.ult ? (rank ? '★' : '') : rank || ''}</em></span>`;
+      return `<span class="spell${cls}" title="${esc(a.name)}: ${esc(a.trick)}">${face(a.icon, id)}<em>${a.ult ? (rank ? '★' : '') : rank || ''}</em></span>`;
     }).join('');
     const effects: string[] = [];
     const frog = h.frog?.day === day ? this.store.task(h.frog.taskId) : undefined;
@@ -1219,7 +1257,7 @@ export class Hud {
       const heroBase = this.store.project(s.hero.baseId);
       const running = !!heroBase && !!activeTaskOf(s, heroBase.id) && !s.onBreak && !idleGuardTripped(s);
       html +=
-        `<div class="queue"><span class="queue-slot" title="${esc(t?.name ?? '')}">${t?.icon ?? ''}</span>` +
+        `<div class="queue"><span class="queue-slot" title="${esc(t?.name ?? '')}">${t ? face(t.icon, techBtn(c.id, smithLevel(s, c.id as 'armor'))) : ''}</span>` +
         bar('build', c.totalMs - c.leftMs, c.totalMs, `${t?.name ?? ''}: ${doneMin} / ${totalMin} мин`) +
         `</div>` +
         `<div class="row ${running ? 'working' : 'stopped'}">${running ? 'Рабочие строят, пока идёт таймер' : 'Стройка стоит: запусти задачу, и рабочие возьмутся за дело'}</div>`;
@@ -1307,10 +1345,11 @@ export class Hud {
       enabled: canThaw(s) && !p.capturedAt,
       run: () => this.store.unfreezeProject(p.id),
     };
-    return [
-      { icon: '✚', hotkey: 'Q', title: 'Новый свиток', text: 'Записать новое дело во входящие.', run: () => this.focusNewScroll() },
+    const cmds: (Command | null)[] = [
+      { icon: '✚', btn: 'scroll', hotkey: 'Q', title: 'Новый свиток', text: 'Записать новое дело во входящие.', run: () => this.focusNewScroll() },
       p.frozen ? thaw : {
         icon: '⚑',
+        btn: 'move',
         hotkey: 'W',
         title: 'Перевести героя сюда',
         cost: `${BALANCE.heroMoveCost} маны`,
@@ -1320,6 +1359,7 @@ export class Hud {
       },
       {
         icon: s.onBreak ? '⚒' : '☕',
+        btn: s.onBreak ? 'backtowork' : 'sleep',
         hotkey: 'E',
         title: s.onBreak ? 'Закончить привал' : 'Привал',
         text: s.onBreak ? 'Рабочие вернутся к добыче.' : 'Рабочие отдыхают, добыча стоит, мана героя восстанавливается.',
@@ -1327,6 +1367,7 @@ export class Hud {
       },
       {
         icon: '✔',
+        btn: 'calltoarms',
         hotkey: 'R',
         title: 'Я ещё работаю',
         text: `Через ${BALANCE.idleGuardMinutes} минут без отметок рабочие садятся отдыхать. Эта кнопка их поднимает.`,
@@ -1334,6 +1375,7 @@ export class Hud {
       },
       {
         icon: '⌂',
+        btn: 'farm',
         hotkey: 'F',
         title: 'Построить ферму',
         cost: `${price(s, BALANCE.farmCost.gold)} золота, ${price(s, BALANCE.farmCost.lumber)} дерева`,
@@ -1343,6 +1385,7 @@ export class Hud {
       p.id === MAIN_HALL_ID
         ? {
             icon: '⚒',
+            btn: 'humanbuild',
             hotkey: 'G',
             title: 'Строительство',
             cost: s.construction ? `строится: ${techOf(s, s.construction.id)?.name ?? ''}` : undefined,
@@ -1352,9 +1395,10 @@ export class Hud {
               this.render();
             },
           }
-        : { icon: '◎', hotkey: 'G', title: 'Камера на базу', text: 'Показать эту базу.', run: () => this.world.focusBase(p.id) },
+        : { icon: '◎', btn: 'townhall', hotkey: 'G', title: 'Камера на базу', text: 'Показать эту базу.', run: () => this.world.focusBase(p.id) },
       {
         icon: '⚒',
+        btn: 'repair',
         hotkey: 'H',
         title: 'Починить базу',
         cost: p.damage ? `${repairCost(p)} золота` : undefined,
@@ -1368,6 +1412,7 @@ export class Hud {
       },
       {
         icon: '✉',
+        btn: 'tome',
         hotkey: 'J',
         title: 'Разобрать входящие',
         text: 'Все неразобранные свитки в одном окне: проект, уровень и срок сразу, ненужные в огонь.',
@@ -1376,6 +1421,7 @@ export class Hud {
       },
       {
         icon: '☀',
+        btn: 'crystalball',
         hotkey: 'Z',
         title: 'Планирование дня',
         text: 'Что пришло ночью и задачи на сегодня, по одной на проект. Новая задача в плане даёт дерево.',
@@ -1383,6 +1429,7 @@ export class Hud {
       },
       {
         icon: '☾',
+        btn: 'elunesblessing',
         hotkey: 'X',
         title: 'Итоги дня',
         text: 'Статистика дня, как в конце партии, и что делать с незаконченными задачами. Перед отбоем открывается сама.',
@@ -1390,6 +1437,7 @@ export class Hud {
       },
       {
         icon: '♨',
+        btn: 'replenishmana',
         hotkey: 'C',
         title: 'Второе дыхание',
         cost: `+${BALANCE.secondWindMana} маны, раз в день`,
@@ -1399,12 +1447,14 @@ export class Hud {
       },
       {
         icon: '❖',
+        btn: 'glyph',
         hotkey: 'V',
         title: 'Глава недели',
         text: 'Две или три главные цели недели. В начале новой недели прошлая глава закрывается: золото за каждую выполненную цель.',
         run: () => openWeek(this.store),
       },
-    ].map((c) => c ?? { icon: '', hotkey: '', title: '', text: '', enabled: false, run: () => {} });
+    ];
+    return cmds.map((c) => c ?? { icon: '', hotkey: '', title: '', text: '', enabled: false, run: () => {} });
   }
 
   /** Карточка строительства на главной ратуше: здания, улучшение ратуши, кузница. */
@@ -1414,7 +1464,7 @@ export class Hud {
       const t = techOf(s, id);
       if (!t) {
         const smith = SMITH[id as 'armor' | 'weapons'];
-        return { icon: smith.icon, hotkey, title: `${smith.name}: изучено полностью`, text: smith.effect(3), enabled: false, run: () => {} };
+        return { icon: smith.icon, btn: techBtn(id, 2), hotkey, title: `${smith.name}: изучено полностью`, text: smith.effect(3), enabled: false, run: () => {} };
       }
       const done = isDone(s, id);
       const now = s.construction?.id === id;
@@ -1423,6 +1473,7 @@ export class Hud {
       const smith = id === 'armor' || id === 'weapons';
       return {
         icon: t.icon,
+        btn: techBtn(id, smith ? smithLevel(s, id) : 0),
         hotkey,
         title: done ? `${t.name}: ${upgrade ? 'есть' : 'построено'}` : now ? `${t.name}: строится` : upgrade ? `Улучшить до: ${t.name}` : smith ? `Изучить: ${t.name}` : `Построить: ${t.name}`,
         cost: done || now ? undefined : `${t.gold} золота, ${t.lumber} дерева, ${t.minutes} мин. работы`,
@@ -1437,6 +1488,7 @@ export class Hud {
     const c = s.construction;
     const cancel: Command = {
       icon: '✖',
+      btn: 'cancel',
       hotkey: 'J',
       title: c ? `Отменить стройку: ${techOf(s, c.id)?.name ?? ''}` : 'Отменить стройку',
       text: 'Золото и дерево вернутся полностью.',
@@ -1445,6 +1497,7 @@ export class Hud {
     };
     const back: Command = {
       icon: '↩',
+      btn: 'cancel',
       hotkey: 'Esc',
       title: 'Назад',
       text: 'Вернуться к командам базы.',
@@ -1467,7 +1520,7 @@ export class Hud {
       tech('armor', 'Z'),
       tech('weapons', 'X'),
       hasBuilding(s, 'vault')
-        ? { icon: '📜', hotkey: 'C', title: 'Открыть хранилище тайн', text: 'Статистика по дням, землям и проектам.', run: () => openVault(this.store) }
+        ? { icon: '📜', btn: 'arcanevault', hotkey: 'C', title: 'Открыть хранилище тайн', text: 'Статистика по дням, землям и проектам.', run: () => openVault(this.store) }
         : empty,
       back,
     ];
@@ -1497,6 +1550,7 @@ export class Hud {
       const rank = rankOf(h, id);
       return {
         icon: a.icon,
+        btn: id,
         hotkey,
         title: rank ? `${a.name}${a.ult ? '' : ` (ступень ${rank})`}` : `${a.name}: не изучена`,
         cost: rank ? this.abilityCost(id) : undefined,
@@ -1509,6 +1563,7 @@ export class Hud {
     const kind = HERO_KINDS[h.kind ?? 'mountainking'];
     const soon = (i: number, hotkey: string): Command => ({
       icon: '◇',
+      btn: SPELL_BTN[h.kind ?? 'mountainking'][i],
       hotkey,
       title: `${kind.spells[i]}: скоро`,
       text: `Способность героя «${kind.name}» ещё в разработке. Пока он дежурит в своей смене со своей маной и уровнем.`,
@@ -1527,6 +1582,7 @@ export class Hud {
       h.fallenAt
         ? {
             icon: '✟',
+            btn: 'resurrection',
             hotkey: 'A',
             title: 'Воскресить на алтаре',
             cost: `${reviveCost(h)} золота`,
@@ -1539,6 +1595,7 @@ export class Hud {
       null,
       {
         icon: '✦',
+        btn: 'skillz',
         hotkey: 'O',
         title: points ? `Изучить способность (очков: ${points})` : 'Изучить способность',
         text: 'Очко навыка за каждый уровень героя. Обычные способности растут на 1, 3 и 5 уровне, ультимейт открывается на 6.',
@@ -1550,6 +1607,7 @@ export class Hud {
       },
       {
         icon: '⚜',
+        btn: 'altarofkings',
         hotkey: 'Z',
         title: 'Призвать героя на алтарь',
         cost: heroes.length < slots ? `${hireCost} золота` : undefined,
@@ -1568,6 +1626,7 @@ export class Hud {
       null,
       {
         icon: '↩',
+        btn: 'cancel',
         hotkey: 'Esc',
         title: 'Назад',
         text: 'Вернуться к базе героя.',
@@ -1585,6 +1644,7 @@ export class Hud {
       const next = rankOf(h, id) + 1;
       return {
         icon: a.icon,
+        btn: id,
         hotkey,
         title: need === null ? `${a.name}: изучена полностью` : `Изучить «${a.name}»${a.ult ? '' : `, ступень ${next}`}`,
         cost: need !== null && h.level < need ? `нужен ${need} уровень героя` : undefined,
@@ -1599,6 +1659,7 @@ export class Hud {
     };
     const back: Command = {
       icon: '↩',
+      btn: 'cancel',
       hotkey: 'Esc',
       title: 'Отмена',
       text: 'Вернуться к способностям героя.',
@@ -1644,6 +1705,7 @@ export class Hud {
     const fit = (t.status === 'hired' || t.status === 'active') && (t.level ?? 0) >= SKILL.frogMinLevel;
     return {
       icon: ABILITIES.stormbolt.icon,
+      btn: 'stormbolt',
       hotkey: 'V',
       title: s.hero.frog?.taskId === t.id ? 'Это лягушка дня' : 'Съесть лягушку (Молот бури)',
       cost: this.abilityCost('stormbolt'),
@@ -1688,6 +1750,7 @@ export class Hud {
     const cmds: (Command | null)[] = [
       {
         icon: '▶',
+        btn: 'move',
         hotkey: 'A',
         title: 'В работу',
         text: 'Юнит идёт к вражеской крепости и занимает еду. На базе оживают рабочие. Одна задача в работе на проект.',
@@ -1698,9 +1761,10 @@ export class Hud {
           }
         },
       },
-      { icon: '⏸', hotkey: 'S', title: 'Вернуть в план', text: 'Остановить работу, юнит вернётся в казарму.', enabled: t.status === 'active', run: () => this.store.stop(t.id) },
+      { icon: '⏸', btn: 'stop', hotkey: 'S', title: 'Вернуть в план', text: 'Остановить работу, юнит вернётся в казарму.', enabled: t.status === 'active', run: () => this.store.stop(t.id) },
       {
         icon: '⚔',
+        btn: 'attack',
         hotkey: 'D',
         title: 'Готово',
         cost: t.level ? `+${reward(this.store.state, UNITS[t.level].xp, 'xp')} опыта, +${reward(this.store.state, BALANCE.caravanGoldPerLevel * t.level, 'mining')} золота` : undefined,
@@ -1712,6 +1776,7 @@ export class Hud {
       },
       {
         icon: '✖',
+        btn: 'cancel',
         hotkey: 'X',
         title: isDemon(t) ? 'Изгнать демона' : 'Отменить',
         text: isDemon(t) ? 'Отказаться от задачи: бесплатно, но без опыта. Честный отказ лучше висящего долга.' : 'Юнит распущен, еда освобождена, без штрафа.',
@@ -1722,6 +1787,7 @@ export class Hud {
     for (const l of [1, 2, 3, 4] as Level[]) {
       cmds.push({
         icon: String(l),
+        btn: UNIT_BTN[l],
         hotkey: String(l),
         title: `${UNITS[l].name}`,
         cost: UNITS[l].hint,
@@ -1733,6 +1799,7 @@ export class Hud {
     cmds.push(
       {
         icon: '⌛',
+        btn: 'slow',
         hotkey: 'Z',
         title: isDemon(t) ? 'Отбиться переносом' : t.due ? 'Перенести срок' : 'Поставить срок',
         cost: isDemon(t) || t.due ? `${rescheduleCost(t)} дерева` : 'бесплатно',
@@ -1744,6 +1811,7 @@ export class Hud {
       },
       {
         icon: '⚑',
+        btn: 'defend',
         hotkey: 'C',
         title: 'Добавить в отряд',
         cost: !canSubtasks(this.store.state) ? 'нужна лесопилка' : squadOf(this.store.state, t.id).length >= squadLimit(this.store.state) ? 'отряд полон' : undefined,
@@ -1755,7 +1823,7 @@ export class Hud {
       },
       rankOf(this.store.state.hero, 'stormbolt') ? this.frogCommand(t) : null,
     );
-    cmds.push({ icon: '↩', hotkey: 'Esc', title: 'Назад', text: 'Вернуться к базе.', run: back });
+    cmds.push({ icon: '↩', btn: 'cancel', hotkey: 'Esc', title: 'Назад', text: 'Вернуться к базе.', run: back });
     return cmds.map((c) => c ?? { icon: '', hotkey: '', title: '', text: '', enabled: false, run: () => {} });
   }
 
@@ -1765,7 +1833,7 @@ export class Hud {
     if (sel.kind === 'group') {
       // У отряда из разных задач общих приказов нет: только снять выделение.
       cmds = Array.from({ length: 11 }, () => ({ icon: '', hotkey: '', title: '', text: '', enabled: false, run: () => {} }));
-      cmds.push({ icon: '↩', hotkey: 'Esc', title: 'Назад', text: 'Снять выделение и вернуться к базе.', run: () => this.select({ kind: 'base', id: this.contextBase()?.id ?? MAIN_HALL_ID }) });
+      cmds.push({ icon: '↩', btn: 'cancel', hotkey: 'Esc', title: 'Назад', text: 'Снять выделение и вернуться к базе.', run: () => this.select({ kind: 'base', id: this.contextBase()?.id ?? MAIN_HALL_ID }) });
     } else if (sel.kind === 'task') {
       const t = this.store.task(sel.id);
       if (t) cmds = this.taskCommands(t);
@@ -1781,7 +1849,7 @@ export class Hud {
       const c = cmds[i];
       if (!c || !c.title) html += '<div class="cmd empty"></div>';
       else
-        html += `<button class="cmd${c.enabled === false ? ' off' : ''}" data-action="cmd" data-id="${i}" aria-label="${esc(c.title)}"><span class="hk">${c.hotkey}</span>${c.icon}</button>`;
+        html += `<button class="cmd${c.enabled === false ? ' off' : ''}" data-action="cmd" data-id="${i}" aria-label="${esc(c.title)}"><span class="hk">${c.hotkey}</span>${face(c.icon, c.btn)}</button>`;
     }
     setHtml($('command-card'), html);
   }

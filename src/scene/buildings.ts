@@ -1,6 +1,6 @@
-// Здания дерева технологий у главной ратуши. Моделей WC3 для них пока нет, поэтому
-// это заглушки из простых фигур с мелочами из уже выгруженных моделей рядом
-// (стойка с доспехами у кузницы, грифон у гнезда). Модели подменятся позже.
+// Здания дерева технологий у главной ратуши: модели WC3 (лесопилка, кузница, мастерская,
+// сторожевая башня, гнездо грифонов, хранилище тайн) с мелочами рядом (стойка с доспехами
+// у кузницы, грифон у гнезда). Пока модели не загрузились, стоят заглушки из простых фигур.
 
 import { MeshBuilder, Scene, TransformNode, Vector3, type AbstractMesh, type Mesh } from '@babylonjs/core';
 import type { BuildingId } from '../state/types';
@@ -16,6 +16,16 @@ export const BUILDING_SPOTS: Record<BuildingId, Vector3> = {
   towers: new Vector3(-13, 0, 23),
   aviary: new Vector3(-25, 0, 21),
   vault: new Vector3(25, 0, 28),
+};
+
+/** Модель здания: [имя, размер, анимация]. Башня в WC3 одна на все виды, сторожевая это первое улучшение. */
+const MODELS: Record<BuildingId, [ModelName, number, string]> = {
+  lumbermill: ['humanlumbermill', 1.2, 'Stand 1'],
+  workshop: ['workshop', 1.2, 'Stand 1'],
+  blacksmith: ['blacksmith', 1.2, 'Stand 1'],
+  towers: ['humantower', 1.1, 'Stand Upgrade First Ready Attack'],
+  aviary: ['gryphonaviary', 1.2, 'Stand 1'],
+  vault: ['arcanevault', 1.2, 'Stand 1'],
 };
 
 /** Мелочь из настоящих моделей рядом со зданием: [модель, смещение, поворот, размер]. */
@@ -123,6 +133,7 @@ export class Riser {
 export class MainBuildings {
   private nodes = new Map<BuildingId, TransformNode>();
   private decor = new Map<BuildingId, ModelInstance[]>();
+  private models = new Map<BuildingId, ModelInstance>();
   private scaffold: { id: BuildingId; node: TransformNode } | null = null;
   /** Только что достроенные здания вырастают из земли; при загрузке игры они уже стоят. */
   private riser = new Riser();
@@ -180,14 +191,29 @@ export class MainBuildings {
     node.position.copyFrom(BUILDING_SPOTS[id]);
     // Фасадом к ратуше.
     node.rotation.y = Math.atan2(-BUILDING_SPOTS[id].x, -BUILDING_SPOTS[id].z);
-    node.getChildMeshes().forEach((m) => (m.metadata = { ...(m.metadata ?? {}), baseId: this.baseId }));
+    node.getChildMeshes().forEach((m) => (m.metadata = { ...(m.metadata ?? {}), baseId: this.baseId, building: id }));
   }
 
   private dress(id: BuildingId) {
-    if (!this.lib || this.decor.has(id)) return;
     const node = this.nodes.get(id);
+    if (!this.lib || !node) return;
+    // Модель здания вместо заглушки: фигуры прячутся, их место занимает WC3.
+    if (!this.models.has(id)) {
+      const [name, size, anim] = MODELS[id];
+      const inst = this.lib.create(name, size);
+      if (inst) {
+        for (const m of node.getChildMeshes(true)) m.setEnabled(false);
+        inst.root.parent = node;
+        inst.root.getChildMeshes().forEach((m) => {
+          m.metadata = { ...(m.metadata ?? {}), baseId: this.baseId, building: id };
+          this.onMesh(m);
+        });
+        inst.play(anim);
+        this.models.set(id, inst);
+      }
+    }
     const items = DECOR[id];
-    if (!node || !items) return;
+    if (this.decor.has(id) || !items) return;
     const made: ModelInstance[] = [];
     for (const [model, at, rot, scale] of items) {
       const inst = this.lib.create(model, scale);

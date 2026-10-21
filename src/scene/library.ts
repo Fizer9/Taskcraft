@@ -29,6 +29,13 @@ export const MODEL_NAMES = [
   'heroarchmage',
   'herobloodelf',
   'rallypoint',
+  // Здания дерева технологий у главной ратуши.
+  'humanlumbermill',
+  'blacksmith',
+  'workshop',
+  'humantower',
+  'gryphonaviary',
+  'arcanevault',
   // Мелочи на карте.
   'crates0',
   'crates1',
@@ -82,6 +89,12 @@ export const LATE_MODELS: readonly ModelName[] = [
   'heroarchmage',
   'herobloodelf',
   'farmbirth',
+  'humanlumbermill',
+  'blacksmith',
+  'workshop',
+  'humantower',
+  'gryphonaviary',
+  'arcanevault',
 ];
 
 /** Масштаб WC3 → мир игры: ратуша WC3 шириной ~450 единиц становится ~11. */

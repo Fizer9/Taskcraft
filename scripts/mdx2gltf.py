@@ -685,9 +685,10 @@ def convert(mdx_path, out_path, roots, tex_size, team_color=(0, 66, 255), replac
                 outp = gl.accessor(values, 5126, 'VEC%d' % comps)
                 anim['samplers'].append({'input': inp, 'output': outp, 'interpolation': 'LINEAR'})
                 anim['channels'].append({'sampler': len(anim['samplers']) - 1, 'target': {'node': node_index[oid], 'path': path}})
-        if not anim['channels'] and any(s['name'] in sw for sw in switches.values()):
+        if not anim['channels'] and (any(s['name'] in sw for sw in switches.values()) or any(s['name'] in v for v in visible.values())):
             # Модель постройки (farmbirth.mdx) без костей: в ней только появляются леса и стены.
-            # Пустая дорожка на корне задаёт длину анимации, чтобы по ней шли visibleSwitch.
+            # А у гнезда грифонов кости в Stand стоят неподвижно, но геосет виден только в Stand.
+            # Пустая дорожка на корне задаёт длину анимации, чтобы по ней шли visibleIn и visibleSwitch.
             inp = gl.accessor([0.0, max((s['end'] - s['start']) / 1000, 0.001)], 5126, 'SCALAR', minmax=True)
             outp = gl.accessor(ROOT_ROTATION * 2, 5126, 'VEC4')
             anim['samplers'].append({'input': inp, 'output': outp, 'interpolation': 'STEP'})

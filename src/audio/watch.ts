@@ -13,6 +13,7 @@ interface Snapshot {
   construction: string | null;
   trophies: number;
   queued: Map<string, number>;
+  heroFallen: boolean;
 }
 
 function snapshot(s: GameState): Snapshot {
@@ -27,6 +28,7 @@ function snapshot(s: GameState): Snapshot {
     construction: s.construction?.id ?? null,
     trophies: wins + (s.dreadlordsSlain ?? 0),
     queued,
+    heroFallen: !!s.hero.fallenAt,
   };
 }
 
@@ -52,9 +54,12 @@ export function watchSounds(store: Store, world: World) {
         const p = store.project(id);
         store.say(`Золото на базе «${p?.name ?? ''}» заканчивается: осталась последняя задача. Найми новых юнитов.`);
         void sounds.play('goldlow');
+        void sounds.warning('goldminelow');
         break;
       }
     }
+    // «Наш герой пал»: мана кончилась, герой ушёл на алтарь.
+    if (now.heroFallen && !prev.heroFallen) void sounds.warning('herodies');
     prev = now;
   });
 

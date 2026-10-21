@@ -79,6 +79,8 @@ const FLOAT_LIFE = 2;
 const FARM_BIRTH = 6;
 /** Казарма в координатах базы и её дверь: новые юниты выходят оттуда к флагу сбора. */
 const BARRACKS = new Vector3(-13, 0, 9);
+/** Какой звук отклика у модели здания при щелчке (sound/buildings/<имя>what.mp3). */
+const SELECT_SOUND: Partial<Record<ModelName, string>> = { townhall: 'townhall', farm: 'farm', humanbarracks: 'barracks', altarofkings: 'altar' };
 /**
  * Скорость, под которую сделан шаг крестьянина: 190 единиц WC3 в секунду. Идёт быстрее
  * или медленнее, и анимация ускоряется или замедляется вместе с ним.
@@ -298,6 +300,7 @@ export class Base {
   upgradeModels() {
     if (!this.lib) return;
     this.troops.setLibrary(this.lib, this.onModelMesh);
+    this.tech?.setLibrary(this.lib, this.onModelMesh);
     this.demons.setLibrary(this.lib, this.onModelMesh);
     if (this.portal && !this.portal.model) this.dressPortal();
     this.placeGuards();
@@ -335,8 +338,9 @@ export class Base {
     inst.root.parent = s.node.parent;
     inst.root.position.copyFrom(s.node.position);
     inst.root.rotation.copyFrom(s.node.rotation);
+    const building = SELECT_SOUND[s.model];
     inst.root.getChildMeshes().forEach((m) => {
-      m.metadata = { ...(m.metadata ?? {}), baseId: this.project.id };
+      m.metadata = { ...(m.metadata ?? {}), baseId: this.project.id, ...(building ? { building } : {}) };
       this.onModelMesh(m);
     });
     if (s.model === 'townhall') {

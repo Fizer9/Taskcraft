@@ -54,6 +54,7 @@ const ART = {
   'quest-done': 'ui/quest-done.png',
   'quest-failed': 'ui/quest-failed.png',
   'quest-icon': 'ui/quest-icon.png',
+  'btn-atlas': 'ui/btn-atlas.png',
 };
 
 /** Размеры картинки консоли в единицах исходника (высота 1024): вся ширина и центр 4:3. */
