@@ -25,8 +25,9 @@ import { loadArt } from '../assets/loader';
 import { sounds } from '../audio/sound';
 import { avatarActive } from '../state/abilities';
 import { BALANCE, HERO_KINDS } from '../state/config';
-import { allDemons, unitHealth, activeDreadlord, activeTaskOf, currentShift, fortressSpot, demonRank, demonsAt, idleGuardTripped, isBlighted, localDay, meteorOf, miningFactor, portalSize, tuning, type Shift } from '../state/economy';
+import { allDemons, unitHealth, activeDreadlord, activeTaskOf, currentShift, fortressSpot, demonRank, demonsAt, idleGuardTripped, isBlighted, localDay, meteorOf, miningFactor, onMap, portalSize, tuning, type Shift } from '../state/economy';
 import type { Store } from '../state/store';
+import { weaponBonus } from '../state/tech';
 import { MAIN_HALL_ID, type BuildingId, type HeroKind, type Project } from '../state/types';
 import { Base } from './base';
 import { launch, shockwave, stormFlash } from './fx';
@@ -219,10 +220,10 @@ export class World {
     this.rain = new Rain(this.scene);
     this.confirm = new Confirm(this.scene);
 
-    for (const p of store.state.projects) this.bases.set(p.id, new Base(this.scene, p));
+    for (const p of store.state.projects) if (onMap(p)) this.bases.set(p.id, new Base(this.scene, p));
     this.heroNode = P.hero(this.scene);
     this.heroNode.getChildMeshes().forEach((m) => (m.metadata = { hero: true }));
-    this.heroNode.position.copyFrom(this.bases.get(store.state.hero.baseId)!.heroSpot());
+    this.heroNode.position.copyFrom((this.bases.get(store.state.hero.baseId) ?? this.bases.get(MAIN_HALL_ID)!).heroSpot());
     this.heroTarget.copyFrom(this.heroNode.position);
     this.camera.target.copyFrom(this.heroNode.position);
     this.glow = new HeroGlow(this.scene, this.heroNode);
@@ -619,7 +620,9 @@ export class World {
       const meta = pick?.pickedMesh?.metadata as { baseId?: string; taskId?: string } | null;
       const p = meta?.baseId ? this.store.project(meta.baseId) : null;
       if (!p || meta?.taskId) return;
-      this.confirm.show(this.bases.get(p.id)!.heroSpot());
+      const b = this.bases.get(p.id);
+      if (!b) return;
+      this.confirm.show(b.heroSpot());
       this.onOrderHero(p.id);
     });
     let lastClick = { id: '', at: 0 };
@@ -857,7 +860,7 @@ export class World {
         // Врата показывают здоровье крепости, стража всегда цела.
         const [, id, foe] = h.key.split(':');
         const p = this.store.project(id);
-        if (h.node && p) bars.push({ node: h.node, lift: foe === 'gate' ? 12 : 4.5, health: foe === 'gate' ? p.fortressHp / Math.max(1, p.fortressMaxHp) : 1, width: foe === 'gate' ? 90 : 34 });
+        if (h.node && p) bars.push({ node: h.node, lift: foe === 'gate' ? 12 : 4.5, health: foe === 'gate' ? this.fortressShown(p.id) / Math.max(1, p.fortressMaxHp) : 1, width: foe === 'gate' ? 90 : 34 });
       } else if (h.key.startsWith('base:')) {
         const p = this.store.project(h.key.slice(5));
         if (p) hallBar(p);
@@ -922,6 +925,14 @@ export class World {
   focusBase(id: string) {
     const p = this.store.project(id);
     if (p) this.flyTo(p.slot.x, p.slot.z + 3);
+  }
+
+  /**
+   * Здоровье врат, которое видно на карте: урон сделанной задачи доходит до врат, когда её
+   * юнит пал у стен. Базы нет на карте — настоящее здоровье.
+   */
+  fortressShown(id: string): number {
+    return this.bases.get(id)?.shownFortressHp() ?? this.store.project(id)?.fortressHp ?? 0;
   }
 
   /** Пробел и F1 в WC3: камера к герою. */
@@ -994,8 +1005,9 @@ export class World {
     for (const p of s.projects) {
       const b = this.bases.get(p.id);
       if (!b) continue;
-      b.setFortressHp(p.fortressHp, p.fortressMaxHp);
+      // Сначала юниты: юнит сделанной задачи идёт на штурм, и врата ждут его удара.
       b.setTasks(s.tasks.filter((t) => t.projectId === p.id));
+      b.setFortressHp(p.fortressHp, p.fortressMaxHp, weaponBonus(s));
       // Захваченная база стоит на земле Легиона, в руинах.
       b.setBlight(isBlighted(s, p) || !!p.capturedAt, p.damage ?? 0);
       b.setFrozen(p.frozen, !!p.capturedAt);
@@ -1095,14 +1107,16 @@ export class World {
   /** Новые, удалённые и изменённые проекты: базы закладываются и сносятся на ходу. */
   private syncBases() {
     const s = this.store.state;
-    const ids = new Set(s.projects.map((p) => p.id));
+    // Законсервированная база уходит с карты, расконсервированная встаёт на своё место.
+    const shown = s.projects.filter(onMap);
+    const ids = new Set(shown.map((p) => p.id));
     let changed = false;
     for (const id of [...this.bases.keys()])
       if (!ids.has(id)) {
         this.dropBase(id);
         changed = true;
       }
-    for (const p of s.projects) {
+    for (const p of shown) {
       const sig = `${p.name}|${p.kind}|${p.slot.x},${p.slot.z}`;
       const old = this.baseSig.get(p.id);
       this.baseSig.set(p.id, sig);

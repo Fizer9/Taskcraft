@@ -4,6 +4,7 @@
 import { Color3, DynamicTexture, Mesh, MeshBuilder, Scene, StandardMaterial } from '@babylonjs/core';
 import type { GameState } from '../state/types';
 import { MAIN_HALL_ID } from '../state/types';
+import { onMap } from '../state/economy';
 
 export interface LandSpot {
   sphereId: string;
@@ -25,7 +26,7 @@ export const LAND_H = 11;
 export function landSpots(state: GameState): LandSpot[] {
   const spots: LandSpot[] = [];
   for (const sp of state.spheres) {
-    const bases = state.projects.filter((p) => p.sphereId === sp.id && p.id !== MAIN_HALL_ID);
+    const bases = state.projects.filter((p) => p.sphereId === sp.id && p.id !== MAIN_HALL_ID && onMap(p));
     if (!bases.length) continue;
     let sx = 0;
     let sz = 0;

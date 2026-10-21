@@ -34,7 +34,7 @@ async function main() {
   store.onEvent((e) => e.cue && sounds.cue(e.cue, e.unit));
   bindClickSound();
   watchSounds(store, world);
-  watchOutcomes(store);
+  watchOutcomes(store, (id) => world.fortressShown(id));
   world.sync();
 
   // Время идёт раз в секунду; первый тик догоняет время, пока вкладка была закрыта.

@@ -31,7 +31,6 @@ const SFX = {
   hammer: 'sound/hammer.mp3',
   menuopen: 'sound/menuopen.mp3',
   menuclose: 'sound/menuclose.mp3',
-  explode: 'sound/explode.mp3',
   defeat: 'sound/defeat.mp3',
 } as const;
 type Sfx = keyof typeof SFX;
@@ -215,6 +214,11 @@ class SoundBoard {
   /** Звук способности или снаряда. */
   spell(name: Spell, gain = 1, delay = 0) {
     return this.playPath(`sound/spell/${name}.mp3`, gain, delay);
+  }
+
+  /** Предсмертный крик своего юнита: footman, rifleman, knight, gryphonrider. */
+  unitDeath(unit: string) {
+    return this.playPath(`sound/death/${unit}.mp3`, 0.9);
   }
 
   /** Предсмертный вой демона Легиона. */

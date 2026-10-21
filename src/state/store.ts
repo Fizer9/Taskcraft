@@ -267,11 +267,8 @@ export class Store {
       p.fortressHp = Math.max(0, p.fortressHp - damage);
       if (p.fortressHp === 0) {
         p.wonAt = Date.now();
-        this.say(
-          `Вражеская крепость проекта «${p.name}» пала! Миссия выиграна. Отправь базу в зал славы или поставь новую крепость (✎).`,
-          'win',
-          'fortress',
-        );
+        // Марш победы играет экран победы, когда врата рухнут на карте (ui/outcome.ts).
+        this.say(`Вражеская крепость проекта «${p.name}» пала! Миссия выиграна. Проект можно оставить, отправить в зал славы или поставить новую крепость (✎).`, 'win');
       }
     }
     if (p) this.hitDreadlord(p, damage);

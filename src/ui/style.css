@@ -1026,6 +1026,7 @@ body.kb .modal, body.kb .modal.wide { max-height: calc(100dvh - var(--kb-top) - 
 #outcome.defeat .outcome-title { color: #ff5a3a; text-shadow: 0 0 24px rgba(255, 60, 30, 0.45), 0 3px 0 #4a0c06, 0 6px 18px #000; }
 .outcome-text { max-width: 640px; text-align: center; line-height: 1.5; color: var(--text); }
 .outcome-hint { color: var(--muted); font-size: 13px; }
+.outcome-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; }
 @keyframes outcome-in { from { opacity: 0; transform: scale(1.04); } }
 
 /* ---------- Солнечные часы (hud.ts renderDial) ---------- */

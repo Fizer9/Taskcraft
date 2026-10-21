@@ -49,6 +49,7 @@ import {
   gameMonth,
   activeDreadlord,
   unitHealth,
+  onMap,
 } from '../state/economy';
 import { plural, type GameEvent, type Store } from '../state/store';
 import { MAIN_HALL_ID, type AbilityId, type HeroKind, type Level, type Project, type Repeat, type Task } from '../state/types';
@@ -1225,7 +1226,8 @@ export class Hud {
     const p = this.store.project(baseId);
     const f = FOES[foe];
     if (!p) return '';
-    const hp = foe === 'gate' ? bar('hp', p.fortressHp, p.fortressMaxHp, `Здоровье ${p.fortressHp} / ${p.fortressMaxHp}`) : '';
+    const gateHp = this.world.fortressShown(p.id);
+    const hp = foe === 'gate' ? bar('hp', gateHp, p.fortressMaxHp, `Здоровье ${gateHp} / ${p.fortressMaxHp}`) : '';
     return `<h3 class="foe">${f.name}</h3><div class="row">Враг · проект <b>${esc(p.name)}</b></div>${hp}<div class="row">${f.about}</div>`;
   }
 
@@ -1295,6 +1297,7 @@ export class Hud {
     const f = miningFactor(s, p);
     const heroHere = s.hero.baseId === p.id && !s.hero.fallenAt;
     const demons = demonsAt(s, p.id);
+    const gateHp = this.world.fortressShown(p.id);
     let status: string;
     if (p.capturedAt)
       status = `<span class="legion">☠ База в руках Легиона: рабочие бежали, здания в руинах. Сделай, перенеси или изгони всех демонов у её стен (${demons.length}), чтобы отбить её.</span>`;
@@ -1308,12 +1311,12 @@ export class Hud {
     return (
       `<h3><span style="color:${BANNER_COLORS[p.kind]}">⚑</span> ${esc(p.name)}${p.id === MAIN_HALL_ID ? '' : ` <span class="link edit" data-action="edit-project" data-id="${p.id}" title="Переименовать, сменить сферу или тип, удалить">✎</span>`}</h3>` +
       `<div class="row">${sphere ? `Земля: <b class="link" data-action="open-spheres" title="Редактор сфер">${esc(sphere.name)}</b> ${sphere.score} → ${sphere.target}` : '<b>Бытовые и повторяющиеся дела</b>'} · база ${kind}</div>` +
-      (p.fortressMaxHp > 0 ? bar('hp', p.fortressHp, p.fortressMaxHp, `Крепость врага ${p.fortressHp} / ${p.fortressMaxHp}`) : '') +
+      (p.fortressMaxHp > 0 ? bar('hp', gateHp, p.fortressMaxHp, `Крепость врага ${gateHp} / ${p.fortressMaxHp}`) : '') +
       (task
         ? `<div class="row">В бою: <b>${esc(task.title)}</b></div><div class="timer">${clock(task.spentMs)}</div>`
         : '') +
       (meteorOf(s, p.id) ? `<div class="row legion">☄ Метеор: «${esc(meteorOf(s, p.id)!.task.title)}», до срока ${meteorOf(s, p.id)!.daysLeft} дн.</div>` : '') +
-      (p.fortressMaxHp > 0 && p.fortressHp === 0
+      (p.fortressMaxHp > 0 && gateHp === 0
         ? `<div class="row won">🏆 Крепость пала${p.wonAt ? ` ${new Date(p.wonAt).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })}` : ''}: миссия выиграна. <span class="link" data-action="enshrine" data-id="${p.id}">В зал славы</span> или ✎ новая крепость.</div>`
         : '') +
       (activeDreadlord(s)?.sphereId === p.sphereId && p.id !== MAIN_HALL_ID
@@ -2026,7 +2029,7 @@ export class Hud {
     const toXu = (x: number) => toX(x) / u;
     const toYu = (z: number) => toY(z) / u;
     const s = this.store.state;
-    for (const p of s.projects) {
+    for (const p of s.projects.filter(onMap)) {
       const x = toXu(p.slot.x);
       const y = toYu(p.slot.z);
       if (p.fortressMaxHp > 0 && p.fortressHp > 0) {

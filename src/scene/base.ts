@@ -91,6 +91,24 @@ const GUARD_HIT: Record<'felhound' | 'felgaurd', { damage: number; sound: Combat
   felhound: { damage: 0.05, sound: 'sliceflesh' },
   felgaurd: { damage: 0.08, sound: 'chopflesh' },
 };
+/** Посты стражи у врат (координаты крепости), в порядке гибели: первой падает левая гончая. */
+const GUARD_POSTS: { kind: 'felhound' | 'felgaurd'; foe: Foe; at: Vector3 }[] = [
+  { kind: 'felhound', foe: 'hound1', at: new Vector3(-5.5, 0, 8) },
+  { kind: 'felhound', foe: 'hound2', at: new Vector3(5.5, 0, 8) },
+  { kind: 'felgaurd', foe: 'felguard', at: new Vector3(0, 0, 9) },
+];
+/** Сколько секунд тело стража лежит у врат, прежде чем уйти в землю. */
+const GUARD_BODY_LIE = 8;
+
+interface Guard {
+  model: ModelInstance;
+  kind: 'felhound' | 'felgaurd';
+  foe: Foe;
+  /** Пост, куда страж возвращается после боя. */
+  post: Vector3;
+  /** Сколько прошло от начала замаха. */
+  swing: number;
+}
 /**
  * Скорость, под которую сделан шаг крестьянина: 190 единиц WC3 в секунду. Идёт быстрее
  * или медленнее, и анимация ускоряется или замедляется вместе с ним.
@@ -153,13 +171,17 @@ export class Base {
   private demons: Demons;
   private blight: BlightFx;
   private meteor: Meteor;
-  /** Стража врат: гончие Скверны по бокам и страж Скверны в середине. */
-  private guards: ModelInstance[] = [];
-  /** Посты стражи у врат (координаты крепости): сюда она возвращается после боя. */
-  private guardPosts: Vector3[] = [];
-  /** Кто из стражи кто (гончая или страж Скверны) и сколько прошло от начала замаха. */
-  private guardKinds: ('felhound' | 'felgaurd')[] = [];
-  private guardSwing: number[] = [];
+  /**
+   * Стража врат: гончие Скверны по бокам и страж Скверны в середине. Чем меньше здоровья у
+   * врат, тем меньше стражи: лишние падают замертво (сначала гончие, страж Скверны последним).
+   */
+  private guards: Guard[] = [];
+  /** Павшая стража: лежит, потом уходит в землю. */
+  private fallen: { model: ModelInstance; t: number }[] = [];
+  /** Здоровье врат: настоящее, показанное и наибольшее. Показанное ждёт, пока юнит задачи падёт у стен. */
+  private gateHp = { real: 0, shown: 0, max: -1, bonus: 0 };
+  /** Врата рушатся: секунды с начала анимации гибели; -1 стоят, Infinity уже убраны. */
+  private gateFall = -1;
   private gate: ModelInstance | null = null;
   /** Враги у крепости по имени: под выбранным рисуется красный круг. */
   private foes = new Map<Foe, TransformNode>();
@@ -252,6 +274,7 @@ export class Base {
       project.id,
     );
     this.troops.hearing = () => this.audible;
+    this.troops.onStrike = (level) => this.struck(level);
 
     this.demons = new Demons(scene, this.root, project.id);
     this.blight = new BlightFx(scene, this.root);
@@ -326,32 +349,54 @@ export class Base {
     this.placeGuards();
   }
 
-  /** Стража у вражеской крепости: две гончие и страж Скверны, если их модели уже есть. */
+  /**
+   * Стража у вражеской крепости по здоровью врат: целые врата стерегут две гончие и страж
+   * Скверны, на последней трети остаётся один страж. Лишние падают анимацией смерти с воем,
+   * недостающие (врата отстроены заново) встают на посты, если их модели уже есть.
+   */
   private placeGuards() {
     const lib = this.lib;
-    if (!lib || this.guards.length) return;
-    const onMesh = this.onModelMesh;
-    if (this.fortressNode) {
-      const posts: ['felhound' | 'felgaurd', number, number, Foe][] = [
-        ['felhound', -5.5, 8, 'hound1'],
-        ['felhound', 5.5, 8, 'hound2'],
-        ['felgaurd', 0, 9, 'felguard'],
-      ];
-      for (const [name, x, z, foe] of posts) {
-        const g = lib.create(name, 0.75);
-        if (!g) continue;
-        g.root.parent = this.fortressNode;
-        g.root.position.set(x, 0, z);
-        g.root.getChildMeshes().forEach((m) => {
-          m.metadata = { ...(m.metadata ?? {}), baseId: this.project.id, foe };
-          onMesh(m);
-        });
-        g.play('Stand 1');
-        this.guards.push(g);
-        this.guardKinds.push(name);
-        this.guardSwing.push(0);
-        this.guardPosts.push(new Vector3(x, 0, z));
-        this.foes.set(foe, g.root);
+    if (!lib || !this.fortressNode) return;
+    const { shown, max } = this.gateHp;
+    const wanted = max > 0 && shown > 0 ? Math.ceil((GUARD_POSTS.length * shown) / max) : max > 0 ? 0 : GUARD_POSTS.length;
+    const keep = new Set(GUARD_POSTS.slice(GUARD_POSTS.length - wanted).map((p) => p.foe));
+    for (const g of [...this.guards]) if (!keep.has(g.foe)) this.killGuard(g);
+    for (const post of GUARD_POSTS) {
+      if (!keep.has(post.foe) || this.guards.some((g) => g.foe === post.foe)) continue;
+      const model = lib.create(post.kind, 0.75);
+      if (!model) continue;
+      model.root.parent = this.fortressNode;
+      model.root.position.copyFrom(post.at);
+      model.root.getChildMeshes().forEach((m) => {
+        m.metadata = { ...(m.metadata ?? {}), baseId: this.project.id, foe: post.foe };
+        this.onModelMesh(m);
+      });
+      model.play('Stand 1');
+      this.guards.push({ model, kind: post.kind, foe: post.foe, post: post.at, swing: 0 });
+      this.foes.set(post.foe, model.root);
+    }
+  }
+
+  /** Страж падает замертво: анимация смерти, вой, тело лежит и уходит в землю. */
+  private killGuard(g: Guard) {
+    this.guards.splice(this.guards.indexOf(g), 1);
+    this.foes.delete(g.foe);
+    g.model.root.getChildMeshes().forEach((m) => {
+      m.isPickable = false;
+      m.metadata = null;
+    });
+    g.model.play('Death 1', false);
+    void sounds.demonDeath(g.kind === 'felgaurd' ? 'felguard' : 'felhound');
+    this.fallen.push({ model: g.model, t: 0 });
+  }
+
+  private updateFallen(dt: number) {
+    for (const f of [...this.fallen]) {
+      f.t += dt;
+      if (f.t > GUARD_BODY_LIE) f.model.root.position.y = -(f.t - GUARD_BODY_LIE) * 0.6;
+      if (f.t > GUARD_BODY_LIE + 3) {
+        f.model.dispose();
+        this.fallen.splice(this.fallen.indexOf(f), 1);
       }
     }
   }
@@ -621,8 +666,9 @@ export class Base {
   private updateGuards(dt: number, fighters: Fighter[]) {
     const origin = this.fortressNode?.position;
     if (!origin) return;
-    this.guards.forEach((g, i) => {
-      const post = this.guardPosts[i];
+    this.guards.forEach((guard, i) => {
+      const g = guard.model;
+      const post = guard.post;
       const victim = fighters.length ? fighters[i % fighters.length] : null;
       const target = victim ? victim.pos.subtract(origin) : null;
       // Встаёт в двух шагах от юнита со стороны врат; стражи обступают его веером, а не толпятся в одной точке.
@@ -643,7 +689,7 @@ export class Base {
       } else if (target && victim) {
         turnTowards(g.root, Math.atan2(target.x - pos.x, target.z - pos.z), dt);
         g.play('Attack 1');
-        this.guardStrike(g, i, victim, dt);
+        this.guardStrike(guard, victim, dt);
       } else {
         turnTowards(g.root, 0, dt);
         g.play('Stand Ready 1');
@@ -651,19 +697,19 @@ export class Base {
     });
   }
 
-  private guardStrike(g: ModelInstance, i: number, victim: Fighter, dt: number) {
-    const period = g.duration('Attack 1') || 1.2;
+  private guardStrike(guard: Guard, victim: Fighter, dt: number) {
+    const period = guard.model.duration('Attack 1') || 1.2;
     const hitAt = period * 0.5;
-    const before = this.guardSwing[i];
+    const before = guard.swing;
     let now = before + dt;
     let hit = before < hitAt && now >= hitAt;
     if (now >= period) {
       now -= period;
       hit ||= now >= hitAt;
     }
-    this.guardSwing[i] = now;
+    guard.swing = now;
     if (!hit) return;
-    const kind = GUARD_HIT[this.guardKinds[i]];
+    const kind = GUARD_HIT[guard.kind];
     this.troops.wound(victim.taskId, kind.damage);
     bloodSplash(this.scene, this.spot(victim.pos.add(new Vector3(0, 1.4, 0))));
     if (this.audible > 0) sounds.combat(kind.sound, this.audible);
@@ -726,13 +772,74 @@ export class Base {
     return true;
   }
 
-  setFortressHp(hp: number, max: number) {
+  /**
+   * Здоровье врат. Урон от сделанной задачи врата получают, когда её юнит пал у стен: до
+   * тех пор полоска и стража прежние. bonus: прибавка к урону юнита от оружия кузницы.
+   */
+  setFortressHp(hp: number, max: number, bonus = 0) {
+    const g = this.gateHp;
+    const first = g.max < 0;
+    g.bonus = bonus;
+    const waits = hp < g.shown && max === g.max && this.troops.striking();
+    g.real = hp;
+    g.max = max;
+    if (!waits) g.shown = hp;
+    this.showFortressHp(first);
+  }
+
+  /** Юнит сделанной задачи пал у стен: его удар доходит до врат. */
+  private struck(level: number) {
+    const g = this.gateHp;
+    g.shown = this.troops.striking() ? Math.max(g.real, g.shown - level - g.bonus) : g.real;
+    this.showFortressHp();
+  }
+
+  /** Здоровье врат, которое сейчас видно на карте (0: врата пали). */
+  shownFortressHp(): number {
+    return this.gateHp.shown;
+  }
+
+  /** first: первая сверка после загрузки, павшие врата просто не показываются. */
+  private showFortressHp(first = false) {
+    const { shown: hp, max } = this.gateHp;
+    this.placeGuards();
     if (!this.hpFill || max <= 0) return;
     const k = Math.max(0.001, hp / max);
     this.hpFill.scaling.x = k;
     this.hpFill.position.x = -4 * (1 - k);
     (this.hpFill.material as StandardMaterial).emissiveColor = Color3.FromHexString(k > 0.5 ? '#2fd13a' : k > 0.25 ? '#e3c22b' : '#e33b2b');
-    if (this.fortressNode) this.fortressNode.setEnabled(hp > 0);
+    const bar = this.hpFill.parent?.parent as TransformNode | null;
+    const gateMeshes = this.gate?.root.getChildMeshes() ?? [];
+    if (hp > 0 && this.gateFall !== -1) {
+      // Врата отстроены заново (у проекта новая крепость).
+      this.gateFall = -1;
+      this.fortressNode?.setEnabled(true);
+      bar?.setEnabled(true);
+      gateMeshes.forEach((m) => (m.isPickable = true));
+      if (this.gate) this.foes.set('gate', this.gate.root);
+      this.gate?.play('Stand 1');
+    } else if (hp <= 0 && this.gateFall === -1) {
+      // Врата рушатся анимацией гибели, крепость уходит с карты, когда улягутся тела стражи.
+      bar?.setEnabled(false);
+      gateMeshes.forEach((m) => (m.isPickable = false));
+      this.foes.delete('gate');
+      if (first || !this.gate) {
+        this.gateFall = Infinity;
+        this.fortressNode?.setEnabled(false);
+      } else {
+        this.gateFall = 0;
+        this.gate.play('Death 1', false);
+      }
+    }
+  }
+
+  private updateGateFall(dt: number) {
+    if (this.gateFall < 0 || this.gateFall === Infinity) return;
+    this.gateFall += dt;
+    if (this.gateFall > (this.gate?.duration('Death 1') || 3) + 2 && !this.fallen.length) {
+      this.gateFall = Infinity;
+      this.fortressNode?.setEnabled(false);
+    }
   }
 
   /** Точка, где стоит герой на этой базе, в мировых координатах. */
@@ -772,11 +879,13 @@ export class Base {
     }
     this.troops.update(dt);
     this.demons.update(dt);
+    this.updateFallen(dt);
+    this.updateGateFall(dt);
     this.meteor.update(dt);
     // Пока у стен идёт бой, стража бросается на юнитов, а портал врат крутится быстрее.
     const battle = this.troops.inBattle();
     this.updateGuards(dt, this.troops.fighters());
-    this.gate?.play(battle ? 'Stand Work 1' : 'Stand 1');
+    if (this.gateFall === -1) this.gate?.play(battle ? 'Stand Work 1' : 'Stand 1');
     // Слабая добыча видна по походке: рабочие плетутся.
     const speed = 5.5 * Math.max(0.35, factor);
     this.assignBuilder();

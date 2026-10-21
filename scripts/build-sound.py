@@ -40,8 +40,11 @@ SFX = {
     # каменная панель меню выезжает и уезжает
     'menuopen': 'sound/interface/rightgluescreenpopup',
     'menuclose': 'sound/interface/rightgluescreenpopdown',
-    # предсмертный крик юнита, который разлетается на куски
-    'explode': 'units/human/footman/footmandeath_hd',
+    # предсмертный крик юнита: пехотинец, стрелок, рыцарь, грифон
+    'death/footman': 'units/human/footman/footmandeath2',
+    'death/rifleman': 'units/human/rifleman/riflemandeath2',
+    'death/knight': 'units/human/footman/footmandeath5',
+    'death/gryphonrider': 'units/human/footman/footmandeath_hd',
     # бой у стен: меч по плоти и по камню врат, топор стража Скверны по юниту
     'combat/sliceflesh1': 'sound/units/combat/metalmediumsliceflesh1',
     'combat/sliceflesh2': 'sound/units/combat/metalmediumsliceflesh2',

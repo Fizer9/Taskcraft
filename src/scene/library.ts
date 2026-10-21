@@ -37,7 +37,6 @@ export const MODEL_NAMES = [
   'gryphonaviary',
   'arcanevault',
   // Эффекты боя: тело, разорванное на куски, молот грифона и Молот бури.
-  'humanlargedeathexplode',
   'gryphonridermissile',
   'stormboltmissile',
   // Мелочи на карте.
@@ -99,7 +98,6 @@ export const LATE_MODELS: readonly ModelName[] = [
   'humantower',
   'gryphonaviary',
   'arcanevault',
-  'humanlargedeathexplode',
   'gryphonridermissile',
   'stormboltmissile',
 ];

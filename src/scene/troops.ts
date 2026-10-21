@@ -2,13 +2,12 @@
 // юнит задачи в работе уходит к крепости врага и бьётся у её стен: мечники высекают
 // искры из камня, стрелок стреляет, грифон мечет молоты. Стража врат ранит юнитов, а
 // на отдыхе у казармы (задача на паузе) раны затягиваются. Когда задача выполнена, юнит
-// бросается на крепость, наносит удар, празднует победу и разлетается на куски, как от
-// выстрела катапульты. Распущенный юнит (задача отменена) взрывается сразу.
+// бросается на крепость, наносит удар, празднует победу и падает анимацией смерти WC3:
+// лежит телом и уходит в землю. Распущенный юнит (задача отменена) падает сразу.
 
 import { MeshBuilder, Scene, TransformNode, Vector3, type AbstractMesh } from '@babylonjs/core';
 import { sounds, type Combat } from '../audio/sound';
 import { launch, sparks, type Shot } from './fx';
-import { explode } from './gibs';
 import type { Level, Task } from '../state/types';
 import type { ModelLibrary, ModelName } from './library';
 import { turnTowards, type ModelInstance } from './models';
@@ -42,6 +41,9 @@ const WEAPON: Record<Level, { sound: Combat | null; shot?: Shot; launch?: 'hamme
 };
 /** Удар приходится на эту долю анимации атаки (замах до неё). */
 const HIT_AT = 0.45;
+/** Сколько секунд тело лежит, потом столько же уходит в землю, как трупы в WC3. */
+const BODY_LIE = 8;
+const BODY_SINK = 3;
 
 type State = 'rally' | 'march' | 'fight' | 'charge' | 'victory';
 
@@ -88,8 +90,12 @@ export class Troops {
   private onMesh: (m: AbstractMesh) => void = () => {};
   /** Снаряды в полёте: их убирают, если база снесена. */
   private shots = new Set<() => void>();
+  /** Павшие юниты: лежат и уходят в землю. */
+  private bodies: { root: TransformNode; model: ModelInstance | null; t: number; fly: number }[] = [];
   /** Насколько громко слышно бой этой базы (0, если камера далеко), задаёт база. */
   hearing: () => number = () => 1;
+  /** Юнит сделанной задачи пал у стен: теперь его удар засчитывается вратам. */
+  onStrike: (level: Level) => void = () => {};
 
   constructor(
     private scene: Scene,
@@ -112,8 +118,8 @@ export class Troops {
     for (const tr of this.troops.values()) {
       if (ids.has(tr.taskId) || tr.state === 'charge' || tr.state === 'victory') continue;
       const task = tasks.find((t) => t.id === tr.taskId);
-      // Отменённый или удалённый юнит взрывается, перенесённый на другую базу просто уходит.
-      if (!task || task.status === 'cancelled') this.blowUp(tr);
+      // Отменённый или удалённый юнит падает, перенесённый на другую базу просто уходит.
+      if (!task || task.status === 'cancelled') this.die(tr);
       else if (task.status !== 'done') this.remove(tr);
       else if (this.layout.fortress) this.charge(tr);
       else {
@@ -202,11 +208,33 @@ export class Troops {
     tr.timer = 2.4;
   }
 
-  /** Юнит разлетается на куски: вспышка, клочья, лужа крови и предсмертный крик. */
-  private blowUp(tr: Troop) {
-    explode(this.scene, this.parent, tr.root.position.clone(), this.lib);
-    void sounds.play('explode');
-    this.remove(tr);
+  /** Юнит падает анимацией смерти с предсмертным криком и остаётся лежать телом. */
+  private die(tr: Troop) {
+    this.troops.delete(tr.taskId);
+    if (tr.state === 'charge' || tr.state === 'victory') this.onStrike(tr.level);
+    tr.root.getChildMeshes().forEach((m) => {
+      m.isPickable = false;
+      m.metadata = null;
+    });
+    if (tr.model) tr.model.play('Death 1', false);
+    void sounds.unitDeath(MODEL[tr.level]);
+    this.bodies.push({ root: tr.root, model: tr.model, t: 0, fly: tr.root.position.y });
+  }
+
+  /** Тела лежат, потом уходят в землю; грифон сначала падает с неба. */
+  private updateBodies(dt: number) {
+    for (const b of [...this.bodies]) {
+      b.t += dt;
+      const p = b.root.position;
+      p.y = b.fly * Math.max(0, 1 - b.t / 0.7) - Math.max(0, b.t - BODY_LIE) * 0.8;
+      // Заглушка без анимации смерти просто валится набок.
+      if (!b.model) b.root.rotation.z = Math.min(Math.PI / 2, b.t * 4);
+      if (b.t > BODY_LIE + BODY_SINK) {
+        b.model?.dispose();
+        b.root.dispose();
+        this.bodies.splice(this.bodies.indexOf(b), 1);
+      }
+    }
   }
 
   private remove(tr: Troop) {
@@ -237,6 +265,14 @@ export class Troops {
   dispose() {
     for (const stop of this.shots) stop();
     this.shots.clear();
+    for (const b of this.bodies) b.model?.dispose();
+    this.bodies = [];
+  }
+
+  /** Есть ли юниты сделанных задач, которые ещё не пали у стен: врата ждут их удара. */
+  striking(): boolean {
+    for (const tr of this.troops.values()) if (tr.state === 'charge' || tr.state === 'victory') return true;
+    return false;
   }
 
   /** Есть ли юниты, которые сейчас бьются у крепости. */
@@ -246,6 +282,7 @@ export class Troops {
   }
 
   update(dt: number) {
+    this.updateBodies(dt);
     for (const tr of [...this.troops.values()]) {
       const m = tr.model;
       if (tr.state === 'rally') tr.hp = Math.min(1, tr.hp + REGEN * dt);
@@ -283,7 +320,7 @@ export class Troops {
         case 'victory':
           this.playAny(m, 'Stand Victory', 'Stand 1');
           tr.timer -= dt;
-          if (tr.timer <= 0) this.blowUp(tr);
+          if (tr.timer <= 0) this.die(tr);
           break;
       }
     }

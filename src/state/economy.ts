@@ -326,6 +326,14 @@ export function activeBases(state: GameState): Project[] {
   return state.projects.filter((p) => !p.frozen && p.id !== MAIN_HALL_ID);
 }
 
+/**
+ * База стоит на карте: законсервированные проекты карту не загромождают, их видно только в
+ * окне «Проекты». Захваченная Легионом база остаётся, чтобы её можно было отбить.
+ */
+export function onMap(p: Project): boolean {
+  return !p.frozen || !!p.capturedAt;
+}
+
 /** Множитель добычи, когда баз в игре больше лимита: армия растянута. */
 export function overLimitFactor(state: GameState): number {
   const over = activeBases(state).length - BALANCE.activeBasesLimit;
