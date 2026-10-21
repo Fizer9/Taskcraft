@@ -75,6 +75,8 @@ WARNINGS = {
     'goldminelow': 'knightgoldminelow1',
     'townattack': 'knighttownattack1',
     'herodies': 'knightherodies1',
+    # «Работа завершена»: в выгрузку пока не попал
+    'jobdone': 'peasantbuildingcomplete1',
 }
 
 # юниты, чьи голоса нужны игре (папки в _locales/<язык>.w3mod/units/human)
