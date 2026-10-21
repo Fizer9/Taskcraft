@@ -110,7 +110,11 @@ export interface Settings {
   bedtime: string;
   /** Множители баланса из настроек, по умолчанию 1: добыча и награды, цены, опыт. */
   balance?: Partial<Tuning>;
+  /** Режим Легиона из лобби: мирный без демонов, обычный, пылающий (захват с трёх демонов, без тихих дней). */
+  legion?: LegionMode;
 }
+
+export type LegionMode = 'peace' | 'normal' | 'burning';
 
 export interface Tuning {
   mining: number;
@@ -196,6 +200,10 @@ export interface GameState {
   dreadlordsSlain?: number;
   /** Когда обучение пройдено или пропущено: после этого само оно не открывается. */
   tutorialDone?: number;
+  /** Когда игра настроена в лобби. Пока не задано, вместо карты открыто лобби новой игры. */
+  setupDone?: number;
+  /** Когда началась игра из лобби: первые дни Легион спит. У старых сохранений нет. */
+  startedAt?: number;
   settings: Settings;
 }
 

@@ -187,7 +187,23 @@ export function demonBaseId(t: Task): string {
   return t.projectId ?? MAIN_HALL_ID;
 }
 
-/** Ступень демона 1–4 по тому, сколько дней висит просрочка. */
+/**
+ * Легион спит: мирный режим из лобби или первые тихие дни новой игры. Демоны не
+ * приходят, портал не открывается, скверна не ползёт. У старых сохранений нет начала
+ * игры, и для них Легион не спит.
+ */
+export function legionAsleep(state: GameState, now = Date.now()): boolean {
+  const mode = state.settings.legion ?? 'normal';
+  if (mode === 'peace') return true;
+  if (mode === 'burning' || !state.startedAt) return false;
+  return now - state.startedAt < BALANCE.quietDays * 86_400_000;
+}
+
+/** Сколько демонов у стен захватывают базу: в пылающем режиме меньше. */
+export function demonsToCapture(state: GameState): number {
+  return state.settings.legion === 'burning' ? BALANCE.demonsToCaptureBurning : BALANCE.demonsToCapture;
+}
+
 /**
  * Ступень демона 1–4. Без armor отдаётся ступень, посчитанная Легионом этой ночью
  * (с учётом «Доспехов» кузницы); armor пересчитывает её заново: каждая ступень
@@ -237,6 +253,7 @@ export function staleScrolls(state: GameState, now = Date.now()): Task[] {
 
 /** Размер портала у главной ратуши: число брошенных свитков, 0 если портал закрыт. */
 export function portalSize(state: GameState, now = Date.now()): number {
+  if (legionAsleep(state, now)) return 0;
   const n = staleScrolls(state, now).length;
   return n >= BALANCE.portalMinScrolls ? n : 0;
 }
@@ -347,7 +364,7 @@ export function canThaw(state: GameState): boolean {
 
 /** По земле проекта ползёт скверна: долго ничего не двигалось. Замороженные и главная ратуша не гниют. */
 export function isBlighted(state: GameState, p: Project, now = Date.now()): boolean {
-  if (p.frozen || p.id === MAIN_HALL_ID) return false;
+  if (p.frozen || p.id === MAIN_HALL_ID || legionAsleep(state, now)) return false;
   return idleDays(state, p, now) >= BALANCE.blightDays;
 }
 

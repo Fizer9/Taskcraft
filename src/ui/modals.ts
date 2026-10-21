@@ -2,11 +2,11 @@
 
 import { checkAssetPassword, encryptedAssetsAvailable } from '../assets/loader';
 import { forgetToken, getGistId, getPassword, hasStoredToken, loadToken, saveToken, setGistId, setPassword } from '../assets/vault';
-import { BALANCE, TUNING_STEPS, UNITS } from '../state/config';
+import { BALANCE, LEGION_MODES, TUNING_STEPS, UNITS } from '../state/config';
 import { reward, tuning } from '../state/economy';
 import { createInitialState } from '../state/seed';
 import { techOf } from '../state/tech';
-import type { Tuning } from '../state/types';
+import type { LegionMode, Tuning } from '../state/types';
 import type { Store } from '../state/store';
 import type { Sync } from '../storage/sync';
 import { openModal } from './modal';
@@ -73,6 +73,10 @@ export function openSettings(store: Store, sync: Sync) {
         ).join('')}</select></div>`,
     ).join('')}</div>
     <div class="hint">${balanceHint(store)}</div>
+    <label>Пылающий Легион</label>
+    <select name="legion">${(Object.keys(LEGION_MODES) as LegionMode[])
+      .map((k) => `<option value="${k}"${(st.legion ?? 'normal') === k ? ' selected' : ''}>${LEGION_MODES[k].name}: ${LEGION_MODES[k].hint}</option>`)
+      .join('')}</select>
 
     <h3 style="margin-top:18px">Уведомления</h3>
     ${
@@ -168,6 +172,7 @@ export function openSettings(store: Store, sync: Sync) {
     st.bedtime = val('bedtime') || st.bedtime;
     st.workDays = [...root.querySelectorAll<HTMLInputElement>('input[name="day"]:checked')].map((i) => Number(i.value));
     st.balance = Object.fromEntries(TUNING_KNOBS.map((k) => [k.id, Number(val(`tune-${k.id}`)) || 1]));
+    st.legion = (val('legion') || 'normal') as LegionMode;
     store.replace(store.state);
 
     const token = val('token');

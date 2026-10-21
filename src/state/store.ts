@@ -43,11 +43,13 @@ import {
   price,
   reward,
   tuning,
+  legionAsleep,
+  demonsToCapture,
 } from './economy';
 import { ABILITIES, SKILL, canLearn, castBlock, clapActive, manaCost, rankOf } from './abilities';
 import { createInitialState } from './seed';
 import { TECH, armorDelay, canRepeat, canSubtasks, maxLevel, squadLimit, techBlock, techOf, weaponBonus } from './tech';
-import { MAIN_HALL_ID, type TechId, type AbilityId, type DayStats, type GameState, type Hero, type HeroKind, type Level, type Project, type BaseKind, type Repeat, type Sphere, type Task } from './types';
+import { MAIN_HALL_ID, type TechId, type AbilityId, type DayStats, type GameState, type Hero, type HeroKind, type Level, type Project, type BaseKind, type Repeat, type Settings, type Sphere, type Task } from './types';
 
 /** Звук события: сцена и интерфейс подбирают к нему звук из WC3. */
 export type Cue = 'hire' | 'start' | 'complete' | 'fortress' | 'level' | 'farm' | 'dawn' | 'move' | 'warn' | 'legion' | 'defeat' | 'spell' | 'jobdone' | 'nogold' | 'nolumber' | 'nofood';
@@ -95,9 +97,62 @@ export class Store {
   /** Старые сохранения: проекты без отметки активности считаем живыми с этого момента. */
   private migrate() {
     const now = Date.now();
+    const s = this.state;
+    // Игра, начатая до лобби, уже настроена: обучение пройдено, есть проекты или задачи.
+    if (!s.setupDone && (s.tutorialDone || s.projects.length > 1 || s.tasks.length)) s.setupDone = s.tutorialDone ?? now;
     for (const p of this.state.projects) p.lastActivityAt ??= now;
     this.state.hero.kind ??= 'mountainking';
     this.state.hero.slot ??= 0;
+  }
+
+  /**
+   * Новая игра из лобби: сферы, герой, распорядок и базы проектов разом. Совет земель
+   * в этом месяце считается проведённым, обучение пройденным, а Легион первые дни спит.
+   */
+  startGame(setup: {
+    spheres: { name: string; score: number; target: number }[];
+    projects: { name: string; sphere: number; kind: BaseKind; hp: number }[];
+    hero: HeroKind;
+    settings: Settings;
+  }) {
+    const now = Date.now();
+    const s = createInitialState(now);
+    const clamp = (n: number) => Math.min(10, Math.max(1, Math.round(n) || 1));
+    s.rev = this.state.rev; // чтобы Gist принял новую игру как следующую ревизию
+    s.spheres = setup.spheres.map((r) => ({ id: 'sphere-' + uid(), name: r.name.trim().slice(0, 40), score: clamp(r.score), target: clamp(r.target) }));
+    if (setup.hero !== 'mountainking') s.hero = { ...s.hero, id: `${setup.hero}-${uid()}`, name: HERO_KINDS[setup.hero].name, kind: setup.hero };
+    s.settings = setup.settings;
+    s.councilMonth = gameMonth(s, new Date(now));
+    s.setupDone = s.startedAt = s.tutorialDone = now;
+    for (const r of setup.projects) {
+      const sphereId = s.spheres[r.sphere]?.id ?? s.spheres[0]?.id ?? 'home';
+      const max = clampHp(r.hp);
+      s.projects.push({
+        id: 'p-' + uid(),
+        name: r.name.trim().slice(0, 40),
+        sphereId,
+        kind: r.kind,
+        fortressHp: max,
+        fortressMaxHp: max,
+        slot: freeSlot(s, sphereId),
+        // Сверх лимита база закладывается законсервированной, как в окне «Проекты».
+        frozen: !canThaw(s),
+        lastActivityAt: now,
+        createdAt: now,
+      });
+    }
+    this.state = s;
+    this.events = [];
+    this.migrate();
+    const n = setup.projects.length;
+    this.say(
+      n
+        ? `Игра началась. Заложено баз: ${n}. Запиши первую задачу (Q) и найми юнита в проект: каждая сделанная задача бьёт по вражеской крепости.`
+        : 'Игра началась. Заложи первую базу проекта (Меню → Проекты) и запиши первую задачу (Q).',
+      'win',
+      'farm',
+    );
+    this.emit();
   }
 
   /** В проекте что-то сдвинулось: скверна перестаёт ползти. */
@@ -1181,7 +1236,7 @@ export class Store {
       'gold',
       'hire',
     );
-    if (paid) this.summonDreadlord(month);
+    if (paid && s.settings.legion !== 'peace') this.summonDreadlord(month);
     this.summonArchimonde();
     this.emit();
   }
@@ -1392,14 +1447,18 @@ export class Store {
 
     let fresh = 0;
     const grown: string[] = [];
+    // Первые дни новой игры и мирный режим: Легион спит. Сроки, прошедшие во сне, считаются с пробуждения.
+    const asleep = legionAsleep(s, now);
+    const woke = s.startedAt && s.settings.legion !== 'burning' ? localDay(new Date(s.startedAt + BALANCE.quietDays * 86_400_000)) : '';
     for (const t of s.tasks) {
       if (!isOpen(t) || !t.due || t.due >= today) continue;
       // Законсервированный проект Легион не трогает. Сроки, прошедшие за паузу, считаются со дня расконсервации.
       const p = t.projectId ? this.project(t.projectId) : undefined;
       if (p?.frozen) continue;
       if (!t.demonSince) {
-        const since = addDays(t.due, 1);
-        t.demonSince = p?.thawedOn && p.thawedOn > since ? p.thawedOn : since;
+        if (asleep) continue;
+        const since = [addDays(t.due, 1), p?.thawedOn ?? '', woke].sort().pop()!;
+        t.demonSince = since > today ? today : since;
         fresh++;
       }
       const rank = demonRank(t, today, armorDelay(s));
@@ -1430,9 +1489,9 @@ export class Store {
     }
     // Захват баз: пять демонов у стен или Инфернал, и база переходит к Легиону.
     for (const p of s.projects) {
-      if (p.id === MAIN_HALL_ID || p.capturedAt || p.frozen) continue;
+      if (p.id === MAIN_HALL_ID || p.capturedAt || p.frozen || asleep) continue;
       const demons = demonsAt(s, p.id, today);
-      if (demons.length < BALANCE.demonsToCapture && !demons.some((t) => demonRank(t, today) === 4)) continue;
+      if (demons.length < demonsToCapture(s) && !demons.some((t) => demonRank(t, today) === 4)) continue;
       this.freezeQuiet(p);
       p.capturedAt = now;
       p.damage = 100;

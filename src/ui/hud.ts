@@ -90,6 +90,7 @@ import {
 } from '../state/tech';
 import { openProject } from './project';
 import { openQuests } from './quests';
+import { Objectives } from './objectives';
 import { Portrait3D, type PortraitLook } from './portrait3d';
 import type { Foe } from '../scene/selection';
 import { btnArt, type BtnIcon } from './btn-icons';
@@ -340,6 +341,39 @@ export class Hud {
     window.setInterval(() => this.drawMinimap(), 200);
     world.select(this.sel.kind === 'base' ? this.sel.id : null);
     world.focusBase(store.state.hero.baseId);
+    new Objectives(store, world, (id) => this.select({ kind: 'base', id }));
+    // Лобби закрылось: камера к первой цели новой игры.
+    let setup = !!store.state.setupDone;
+    store.subscribe((st) => {
+      if (!setup && st.setupDone) window.setTimeout(() => this.enter(true), 600);
+      setup = !!st.setupDone;
+    });
+  }
+
+  /**
+   * Вход в игру: камера летит к самому важному месту и над ним встаёт маркер цели.
+   * Идёт задача, туда; нет, к базе, где больше всего демонов; в новой игре к первой
+   * базе проекта; иначе к герою.
+   */
+  private entered = false;
+
+    enter(fresh = false) {
+    const s = this.store.state;
+    // Вход один: если игра уже началась из лобби, конец загрузки камеру не уводит.
+    if (!s.setupDone || (this.entered && !fresh)) return;
+    this.entered = true;
+    const day = gameDay(s);
+    const fight = s.projects.find((p) => activeTaskOf(s, p.id));
+    const besieged = s.projects
+      .filter(onMap)
+      .map((p) => ({ p, n: demonsAt(s, p.id, day).length }))
+      .filter((x) => x.n)
+      .sort((a, b) => b.n - a.n)[0]?.p;
+    const first = fresh ? s.projects.find((p) => p.id !== MAIN_HALL_ID && onMap(p)) : undefined;
+    const goal = fight ?? besieged ?? first;
+    if (!goal) return this.world.focusBase(s.hero.baseId);
+    this.select({ kind: 'base', id: goal.id });
+    this.world.ping(goal.id);
   }
 
   private select(sel: Selection) {
@@ -650,6 +684,8 @@ export class Hud {
         if (e.key === 'Escape') (e.target as HTMLElement).blur();
         return;
       }
+      // Пока открыто лобби новой игры, клавиши карты не работают.
+      if (document.body.classList.contains('lobby')) return;
       const modal = document.getElementById('modal-root')!;
       // F9 открывает и закрывает журнал заданий, как в WC3.
       if (e.key === 'F9') {
@@ -936,7 +972,11 @@ export class Hud {
     // До первого тика окна не открываются: он догоняет время, пока игры не было,
     // и ночной подсчёт приводит демонов.
     if (s.lastTick === this.bootTick) return;
-    // Первый запуск: сначала короткое обучение.
+    // Новая игра настраивается в лобби: окна ждут, пока оно не закроется.
+    if (!s.setupDone) return;
+    // В день начала игры глава недели и планирование не лезут сами: задач ещё нет,
+    // панель целей зовёт к ним, когда они понадобятся.
+    const firstDay = !!s.startedAt && localDay(new Date(s.startedAt)) === day;
     if (!s.tutorialDone) {
       openTutorial(this.store);
     } else if (!this.legionShown && this.awayMs >= BALANCE.returnScreenDays * 86_400_000 && allDemons(s).length) {
@@ -950,9 +990,9 @@ export class Hud {
     } else if (s.lastLegionDay && s.councilMonth !== gameMonth(s) && this.councilLaterDay !== day && !summaryDue(s)) {
       // Совет земель в начале месяца, «позже» откладывает его до завтра.
       openCouncil(this.store, () => (this.councilLaterDay = day));
-    } else if (s.lastLegionDay && s.week?.start !== week && this.weekLaterStart !== week && !summaryDue(s)) {
+    } else if (s.lastLegionDay && !firstDay && s.week?.start !== week && this.weekLaterStart !== week && !summaryDue(s)) {
       openWeek(this.store, () => (this.weekLaterStart = week));
-    } else if (s.lastLegionDay && s.dayPlan?.day !== day && this.planLaterDay !== day && !summaryDue(s)) {
+    } else if (s.lastLegionDay && !firstDay && s.dayPlan?.day !== day && this.planLaterDay !== day && !summaryDue(s)) {
       openPlanning(this.store, () => (this.planLaterDay = day));
     } else if (summaryDue(s) && Date.now() > this.summaryLaterUntil) {
       openSummary(this.store, () => (this.summaryLaterUntil = Date.now() + 30 * 60_000));

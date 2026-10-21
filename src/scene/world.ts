@@ -41,7 +41,7 @@ import { HpBars, NameTags, type Bar } from './hpbars';
 import { turnTowards, type ModelInstance } from './models';
 import * as P from './placeholders';
 import { Ground, TerrainMap, hasBlightTiles, minimapArt, terrainMaterial } from './terrain';
-import { Blobs, Confirm, HeroGlow, Lake, Rain, mapEdge, type Caster } from './ambience';
+import { Blobs, Confirm, GoalMarker, HeroGlow, Lake, Rain, mapEdge, type Caster } from './ambience';
 
 export const MAP_HALF = 200;
 
@@ -167,6 +167,7 @@ export class World {
   private glow: HeroGlow;
   private rain: Rain;
   private confirm: Confirm;
+  private goal: GoalMarker;
   private lake: Lake | null = null;
   private lakeDecor: TransformNode[] = [];
   /** Уровень героя по прошлой синхронизации: новый уровень зажигает столб света. */
@@ -219,6 +220,7 @@ export class World {
     this.blobs = new Blobs(this.scene);
     this.rain = new Rain(this.scene);
     this.confirm = new Confirm(this.scene);
+    this.goal = new GoalMarker(this.scene);
 
     for (const p of store.state.projects) if (onMap(p)) this.bases.set(p.id, new Base(this.scene, p));
     this.heroNode = P.hero(this.scene);
@@ -935,6 +937,15 @@ export class World {
     return this.bases.get(id)?.shownFortressHp() ?? this.store.project(id)?.fortressHp ?? 0;
   }
 
+  /** Камера к базе и маркер цели над ней: вход в игру и щелчок в панели целей. */
+  ping(id: string) {
+    const p = this.store.project(id);
+    if (!p) return;
+    this.focusBase(id);
+    this.goal.show(p.slot.x, p.slot.z);
+    this.pacer.poke(performance.now());
+  }
+
   /** Пробел и F1 в WC3: камера к герою. */
   focusHero() {
     const h = this.heroNode.position;
@@ -1297,6 +1308,7 @@ export class World {
     this.glow.update(dt, this.heroNode.isEnabled() && !this.heroFallen);
     this.rain.follow(cam.target);
     this.confirm.update(dt);
+    this.goal.update(dt);
     this.lake?.update(dt);
 
     const s = this.store.state;

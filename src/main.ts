@@ -13,6 +13,7 @@ import { bindClickSound, sounds } from './audio/sound';
 import { currentShift } from './state/economy';
 import { watchSounds } from './audio/watch';
 import { watchOutcomes } from './ui/outcome';
+import { watchLobby } from './ui/lobby';
 
 async function main() {
   const store = new Store(loadLocal() ?? undefined);
@@ -27,7 +28,7 @@ async function main() {
   document.body.classList.remove('locked');
 
   const world = new World(document.getElementById('scene') as HTMLCanvasElement, store);
-  new Hud(store, world, sync);
+  const hud = new Hud(store, world, sync);
   const notifier = new Notifier(store);
 
   store.subscribe(() => world.sync());
@@ -35,6 +36,8 @@ async function main() {
   bindClickSound();
   watchSounds(store, world);
   watchOutcomes(store, (id) => world.fortressShown(id));
+  // Новая игра начинается с лобби: сферы, проекты, герой.
+  watchLobby(store, sync, () => world.minimapArt());
   world.sync();
 
   // Время идёт раз в секунду; первый тик догоняет время, пока вкладка была закрыта.
@@ -53,7 +56,10 @@ async function main() {
   // и база на экране, а юниты, Легион, музыка и фон окружения догружаются следом.
   const loading = showLoading();
   void Promise.all([applySkin(), world.loadTerrain(), world.loadModels()])
-    .finally(() => loading.done())
+    .finally(() => {
+      loading.done();
+      hud.enter();
+    })
     .then(() => Promise.all([world.loadLateModels(), sounds.startMusic(), sounds.startAmbient()]));
 
   // Для отладки из консоли браузера.

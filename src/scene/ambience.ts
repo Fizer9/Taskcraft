@@ -422,3 +422,85 @@ export class Confirm {
     this.mat.alpha = t < 0.6 ? 1 : 1 - (t - 0.6) / 0.4;
   }
 }
+
+/**
+ * Маркер цели, как пинг на мини-карте в WC3: золотое кольцо на земле расходится волнами,
+ * над ним качается стрелка. Ставится при входе в игру и по щелчку в панели целей.
+ */
+export class GoalMarker {
+  private root: TransformNode;
+  private rings: Mesh[] = [];
+  private arrow: Mesh;
+  private ringMat: StandardMaterial;
+  private arrowMat: StandardMaterial;
+  private age = -1;
+  private static readonly LIFE = 8;
+
+  constructor(scene: Scene) {
+    const tex = new DynamicTexture('goalRingTex', { width: 128, height: 128 }, scene, false);
+    const ctx = tex.getContext() as CanvasRenderingContext2D;
+    ctx.clearRect(0, 0, 128, 128);
+    ctx.strokeStyle = '#ffd34d';
+    ctx.lineWidth = 5;
+    ctx.beginPath();
+    ctx.arc(64, 64, 56, 0, Math.PI * 2);
+    ctx.stroke();
+    tex.hasAlpha = true;
+    tex.update();
+    this.ringMat = new StandardMaterial('goalRingMat', scene);
+    this.ringMat.diffuseTexture = tex;
+    this.ringMat.useAlphaFromDiffuseTexture = true;
+    this.ringMat.emissiveColor = new Color3(1, 0.83, 0.3);
+    this.ringMat.disableLighting = true;
+    this.ringMat.backFaceCulling = false;
+    this.root = new TransformNode('goal', scene);
+    for (let i = 0; i < 3; i++) {
+      const r = MeshBuilder.CreateGround('goalRing' + i, { width: 1, height: 1 }, scene);
+      r.material = this.ringMat;
+      r.parent = this.root;
+      r.isPickable = false;
+      r.position.y = 0.3 + i * 0.01;
+      this.rings.push(r);
+    }
+    this.arrowMat = new StandardMaterial('goalArrowMat', scene);
+    this.arrowMat.emissiveColor = new Color3(1, 0.8, 0.2);
+    this.arrowMat.diffuseColor = new Color3(1, 0.8, 0.2);
+    this.arrow = MeshBuilder.CreateCylinder('goalArrow', { height: 3, diameterTop: 2, diameterBottom: 0, tessellation: 4 }, scene);
+    this.arrow.material = this.arrowMat;
+    this.arrow.parent = this.root;
+    this.arrow.isPickable = false;
+    this.root.setEnabled(false);
+  }
+
+  show(x: number, z: number) {
+    this.root.position.set(x, 0, z);
+    this.age = 0;
+    this.root.setEnabled(true);
+    this.update(0);
+  }
+
+  get active(): boolean {
+    return this.age >= 0;
+  }
+
+  update(dt: number) {
+    if (this.age < 0) return;
+    this.age += dt;
+    if (this.age >= GoalMarker.LIFE) {
+      this.age = -1;
+      this.root.setEnabled(false);
+      return;
+    }
+    const fade = Math.min(1, (GoalMarker.LIFE - this.age) / 1.2);
+    // Три волны расходятся от центра одна за другой.
+    this.rings.forEach((r, i) => {
+      const t = (this.age / 1.5 + i / 3) % 1;
+      const size = 16 + t * 16;
+      r.scaling.set(size, 1, size);
+      r.visibility = (1 - t) * fade;
+    });
+    this.arrow.position.y = 9 + Math.sin(this.age * 4) * 0.8;
+    this.arrow.rotation.y = this.age * 1.5;
+    this.arrow.visibility = fade;
+  }
+}

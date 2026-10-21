@@ -1429,3 +1429,109 @@ body.art-btn-atlas .hero-btn .btn-art { left: 0; height: auto; max-width: none; 
 
 /* Выбран враг у крепости: имя красным, как у чужих юнитов в WC3. */
 .info h3.foe { color: #ff5a4a; }
+
+/* ---------- Лобби новой игры (src/ui/lobby.ts), как меню карты кастомки WC3 ---------- */
+body.lobby #side, body.lobby #console, body.lobby #topbar, body.lobby #left-icons, body.lobby #messages { visibility: hidden; }
+#lobby {
+  position: fixed;
+  inset: 0;
+  z-index: 25;
+  display: grid;
+  place-items: center;
+  background: radial-gradient(ellipse at 50% 30%, rgba(20, 16, 10, 0.75), rgba(0, 0, 0, 0.92));
+  transition: opacity 0.4s;
+}
+#lobby.gone { opacity: 0; pointer-events: none; }
+#lobby .lobby-panel { width: min(980px, calc(100vw - 24px)); max-height: calc(100vh - 24px); animation: modal-in 0.35s ease-out; }
+#lobby h3 { font-size: 24px; text-align: center; }
+#lobby h4 { margin: 16px 0 2px; color: var(--gold-bright); font-weight: normal; font-size: 16px; }
+.lobby-grid { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 20px; }
+.lobby-race { display: flex; gap: 10px; align-items: baseline; padding: 6px 10px; border: 1px solid var(--gold-dark); background: rgba(0, 0, 0, 0.3); }
+.lobby-race span { color: var(--muted); }
+.lobby-race b { color: var(--gold-bright); font-weight: normal; }
+.lobby-race em { color: var(--muted); font-size: 12px; margin-left: auto; }
+.lobby-count { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 8px 0 6px; }
+.lobby-count .btn { min-width: 34px; }
+.lobby-count .btn.on, .lobby-custom.on, #lobby .levels .btn.on, .lobby-hero.on { border-color: var(--green); color: var(--green); }
+#lobby .lobby-custom { display: flex; gap: 6px; align-items: center; margin: 0 0 0 6px; color: var(--muted); }
+#lobby .lobby-custom input { width: 64px; }
+.lobby-rows { display: grid; gap: 6px; }
+.lobby-row { display: grid; gap: 6px; align-items: center; }
+.lobby-sphere { grid-template-columns: 12px minmax(0, 1fr) 56px 12px 56px; }
+.lobby-sphere span { color: var(--muted); text-align: center; }
+.lobby-project { grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr); }
+.lobby-dot { width: 12px; height: 12px; border: 1px solid #000; border-radius: 50%; }
+#lobby .lobby-row input, #lobby .lobby-row select { width: 100%; min-width: 0; }
+.lobby-heroes { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin-top: 8px; }
+.lobby-hero { display: flex; flex-direction: column; align-items: center; gap: 2px; height: auto; padding: 8px 6px; text-align: center; }
+.lobby-hero b { font-weight: normal; }
+.lobby-hero span { color: var(--text); font-size: 12px; }
+.lobby-hero-icon { position: relative; display: grid; place-items: center; width: 48px; height: 48px; border: 1px solid #000; background: #1a160f; font-style: normal; color: var(--gold-bright); }
+body.art-btn-atlas .lobby-hero-icon > span { display: none; }
+.lobby-hero:not(.on) .lobby-hero-icon .btn-art { filter: brightness(0.7); }
+.lobby-more { margin-top: 16px; border-top: 1px solid var(--gold-dark); padding-top: 8px; }
+.lobby-more summary { cursor: pointer; color: var(--gold); }
+.lobby-days { display: flex; flex-wrap: wrap; gap: 4px 12px; }
+#lobby .lobby-days label.check { margin: 2px 0; }
+.lobby-right { display: flex; flex-direction: column; gap: 10px; position: sticky; top: 0; align-self: start; }
+.lobby-map { width: 100%; aspect-ratio: 1; border: 2px solid var(--gold-dark); outline: 1px solid #000; background: #3c5a24; }
+.lobby-brief { font-size: 13px; display: grid; gap: 4px; }
+.lobby-brief b { color: var(--gold-bright); font-weight: normal; font-size: 15px; }
+.lobby-brief .lobby-todo { color: #ffb84d; }
+.lobby-go { font-size: 16px; padding: 4px 22px; }
+.lobby-load { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: flex-end; margin-top: 8px; }
+.lobby-load .hint { margin: 0 auto 0 0 !important; }
+@media (max-width: 760px) {
+  .lobby-grid { grid-template-columns: 1fr; }
+  .lobby-right { order: -1; position: static; }
+  .lobby-map { max-width: 300px; margin: 0 auto; }
+  .lobby-heroes { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .lobby-project { grid-template-columns: 1fr 1fr; }
+  .lobby-project input { grid-column: 1 / -1; }
+  .lobby-project { padding-bottom: 8px; border-bottom: 1px solid rgba(201, 162, 74, 0.2); }
+}
+
+/* ---------- Панель целей (src/ui/objectives.ts), как «Главные задачи» миссии WC3 ---------- */
+#objectives {
+  position: fixed;
+  top: 44px;
+  right: 10px;
+  width: 250px;
+  z-index: 7;
+  padding: 6px 8px 8px;
+  background: rgba(20, 17, 13, 0.82);
+  border: 2px solid var(--gold-dark);
+  outline: 1px solid #000;
+  border-radius: 4px;
+  font-size: 13px;
+}
+#objectives button { all: unset; box-sizing: border-box; cursor: pointer; display: flex; align-items: center; gap: 6px; width: 100%; }
+#objectives .obj-head { justify-content: space-between; color: var(--gold-bright); font-size: 15px; }
+#objectives .obj-head i { font-style: normal; color: var(--gold); transition: transform 0.2s; }
+#objectives.folded .obj-head i { transform: rotate(-90deg); }
+#objectives.folded .obj-body { display: none; }
+#objectives .obj-ladder { display: grid; gap: 1px; margin-top: 4px; }
+#objectives .obj-row { padding: 2px 4px; border-radius: 2px; }
+#objectives .obj-row i { font-style: normal; width: 18px; text-align: center; }
+#objectives .obj-row span { color: var(--muted); }
+#objectives .obj-row b { margin-left: auto; font-weight: normal; color: var(--gold-bright); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#objectives .obj-row.done b { color: var(--green); }
+#objectives .obj-row.warn b { color: #ff8a5a; }
+#objectives button:hover { background: rgba(255, 211, 77, 0.1); }
+#objectives .obj-title { margin: 6px 0 2px; padding-top: 4px; border-top: 1px solid rgba(201, 162, 74, 0.3); color: var(--gold); font-size: 12px; letter-spacing: 0.05em; text-transform: uppercase; }
+#objectives .obj-fronts { display: grid; gap: 2px; }
+#objectives .obj-front { display: grid; grid-template-columns: minmax(0, 1fr) 54px auto auto; gap: 6px; padding: 2px 4px; }
+#objectives .obj-front span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text); }
+#objectives .obj-front b { font-weight: normal; color: var(--muted); font-size: 12px; white-space: nowrap; }
+#objectives .obj-front em { font-style: normal; color: #7dff5a; font-size: 12px; }
+#objectives .obj-front.won b { color: var(--green); }
+#objectives .obj-front.lost span, #objectives .obj-front.lost b { color: #ff6b4a; }
+#objectives .obj-bar { display: block; height: 6px; background: #1a0f0c; border: 1px solid #000; }
+#objectives .obj-bar > i { display: block; height: 100%; background: linear-gradient(#ff5a3a, #a3200f); }
+#objectives .obj-front.lost { grid-template-columns: minmax(0, 1fr) auto auto; }
+@media (max-width: 700px), (max-height: 500px) {
+  #objectives { top: 40px; right: 6px; width: min(230px, calc(100vw - 12px)); font-size: 12px; }
+}
+/* На телефоне открытый список задач закрывает карту, и панель целей ему не мешает. */
+@media (max-width: 700px) { body:has(#side:not(.hidden)) #objectives { display: none; } }
+body.lobby #objectives { display: none; }

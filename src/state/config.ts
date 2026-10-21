@@ -1,7 +1,7 @@
 // Все числа баланса в одном месте. В дизайн-документе они ещё открытый вопрос,
 // так что здесь стартовые значения, которые удобно крутить.
 
-import type { HeroKind, Level } from './types';
+import type { HeroKind, LegionMode, Level } from './types';
 
 export const UNITS: Record<Level, { name: string; hint: string; xp: number }> = {
   1: { name: 'Пехотинец', hint: 'до получаса', xp: 25 },
@@ -111,10 +111,24 @@ export const BALANCE = {
   returnScreenDays: 2,
   /** Столько демонов у базы, и Легион её захватывает. Инфернал захватывает и в одиночку. */
   demonsToCapture: 5,
+  /** В пылающем режиме Легиона база падает уже от стольких демонов. */
+  demonsToCaptureBurning: 3,
+  /** Первые дни новой игры Легион спит: нет демонов, портала и скверны. */
+  quietDays: 3,
   /** Сколько проектов одновременно в игре, остальные законсервированы. */
   activeBasesLimit: 6,
   /** Армия растянута: каждая база сверх лимита снижает добычу на эту долю, но не больше чем вдвое. */
   overLimitPenalty: 0.1,
+};
+
+/** Режимы Пылающего Легиона: выбираются в лобби, меняются в настройках. */
+export const LEGION_MODES: Record<LegionMode, { name: string; hint: string }> = {
+  peace: { name: 'Мирный', hint: 'просрочки не становятся демонами, Повелители ужаса не приходят' },
+  normal: {
+    name: 'Обычный',
+    hint: `первые ${BALANCE.quietDays} дня новой игры Легион спит, потом просрочки становятся демонами, ${BALANCE.demonsToCapture} демонов захватывают базу`,
+  },
+  burning: { name: 'Пылающий Легион', hint: `без тихих дней, базу захватывают уже ${BALANCE.demonsToCaptureBurning} демона` },
 };
 
 /** Повелители ужаса из WC3, по одному на месяц по кругу. */
