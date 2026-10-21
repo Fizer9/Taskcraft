@@ -8,8 +8,10 @@ import { unlockOnStart } from './ui/modals';
 import { Notifier } from './ui/notify';
 import { applySkin } from './ui/skin';
 import { watchKeyboard } from './ui/keyboard';
+import { showLoading } from './ui/loading';
 import { bindClickSound, sounds } from './audio/sound';
 import { currentShift } from './state/economy';
+import { watchSounds } from './audio/watch';
 
 async function main() {
   const store = new Store(loadLocal() ?? undefined);
@@ -30,6 +32,7 @@ async function main() {
   store.subscribe(() => world.sync());
   store.onEvent((e) => e.cue && sounds.cue(e.cue, e.unit));
   bindClickSound();
+  watchSounds(store, world);
   world.sync();
 
   // Время идёт раз в секунду; первый тик догоняет время, пока вкладка была закрыта.
@@ -44,8 +47,12 @@ async function main() {
     shift = now;
   }, 60_000);
 
-  // Графика WC3 зашифрована, поэтому грузится только после пароля.
-  void Promise.all([applySkin(), world.loadTerrain(), world.loadModels(), sounds.startMusic()]);
+  // Графика WC3 зашифрована, поэтому грузится только после пароля. Сначала интерфейс, земля
+  // и база на экране, а юниты, Легион, музыка и фон окружения догружаются следом.
+  const loading = showLoading();
+  void Promise.all([applySkin(), world.loadTerrain(), world.loadModels()])
+    .finally(() => loading.done())
+    .then(() => Promise.all([world.loadLateModels(), sounds.startMusic(), sounds.startAmbient()]));
 
   // Для отладки из консоли браузера.
   Object.assign(window, { taskcraft: { store, world, sync, sounds, notifier } });

@@ -50,7 +50,7 @@ import { TECH, armorDelay, canRepeat, canSubtasks, maxLevel, squadLimit, techBlo
 import { MAIN_HALL_ID, type TechId, type AbilityId, type DayStats, type GameState, type Hero, type HeroKind, type Level, type Project, type BaseKind, type Repeat, type Sphere, type Task } from './types';
 
 /** Звук события: сцена и интерфейс подбирают к нему звук из WC3. */
-export type Cue = 'hire' | 'start' | 'complete' | 'fortress' | 'level' | 'farm' | 'dawn' | 'move' | 'warn' | 'legion' | 'spell';
+export type Cue = 'hire' | 'start' | 'complete' | 'fortress' | 'level' | 'farm' | 'dawn' | 'move' | 'warn' | 'legion' | 'spell' | 'jobdone' | 'nogold' | 'nolumber' | 'nofood';
 /** unit: уровень юнита задачи, чтобы событие озвучил его голос. */
 export type GameEvent = { id: number; text: string; kind: 'info' | 'gold' | 'warn' | 'win'; cue?: Cue; unit?: Level };
 
@@ -206,7 +206,7 @@ export class Store {
       return false;
     }
     if (foodUsed(this.state) >= foodCap(this.state)) {
-      this.say('Нужно построить больше ферм.', 'warn');
+      this.say('Нужно построить больше ферм.', 'warn', 'nofood');
       return false;
     }
     t.status = 'active';
@@ -878,7 +878,7 @@ export class Store {
     if (heroes.some((h) => h.kind === kind)) return;
     const cost = price(s, BALANCE.heroHireGold[heroes.length] ?? 0);
     if (s.resources.gold < cost) {
-      this.say(`Нужно ${cost} золота, чтобы призвать героя.`, 'warn');
+      this.say(`Нужно ${cost} золота, чтобы призвать героя.`, 'warn', 'nogold');
       return;
     }
     s.resources.gold -= cost;
@@ -932,7 +932,7 @@ export class Store {
     if (!h.fallenAt) return;
     const cost = reviveCost(h);
     if (this.state.resources.gold < cost) {
-      this.say(`Нужно ${cost} золота, чтобы воскресить героя.`, 'warn');
+      this.say(`Нужно ${cost} золота, чтобы воскресить героя.`, 'warn', 'nogold');
       return;
     }
     this.state.resources.gold -= cost;
@@ -991,12 +991,12 @@ export class Store {
       this.say('Строить можно только во время работы.', 'warn');
       return;
     }
-    if (r.gold < gold) return this.say('Нужно больше золота.', 'warn');
-    if (r.lumber < lumber) return this.say('Нужно больше дерева.', 'warn');
+    if (r.gold < gold) return this.say('Недостаточно золота.', 'warn', 'nogold');
+    if (r.lumber < lumber) return this.say('Недостаточно дерева.', 'warn', 'nolumber');
     r.gold -= gold;
     r.lumber -= lumber;
     this.state.farms += 1;
-    this.say('Ферма построена. +1 место под задачу в работе', 'info', 'farm');
+    this.say('Ферма построена. +1 место под задачу в работе', 'info', 'jobdone');
     this.emit();
   }
 
@@ -1065,10 +1065,10 @@ export class Store {
       this.say(`Ратуша стала ${c.id === 'keep' ? 'крепостью' : 'замком'}! ${TECH[c.id].gives}`, 'win', 'fortress');
     } else if (c.id === 'armor' || c.id === 'weapons') {
       s.smith = { ...s.smith, [c.id]: (s.smith?.[c.id] ?? 0) + 1 };
-      this.say(`Кузница: ${t?.name ?? ''} готово. ${t?.gives ?? ''}`, 'win', 'farm');
+      this.say(`Кузница: ${t?.name ?? ''} готово. ${t?.gives ?? ''}`, 'win', 'jobdone');
     } else {
       s.buildings = { ...s.buildings, [c.id]: true };
-      this.say(`Построено: ${TECH[c.id].name}. ${TECH[c.id].gives}`, 'win', 'farm');
+      this.say(`Построено: ${TECH[c.id].name}. ${TECH[c.id].gives}`, 'win', 'jobdone');
     }
   }
 
@@ -1302,10 +1302,10 @@ export class Store {
     if (!p || !p.damage) return;
     if (p.capturedAt) return this.say('Руины не отстроить, пока база в руках Легиона. Сначала отбей её.', 'warn');
     const cost = repairCost(p);
-    if (this.state.resources.gold < cost) return this.say('Нужно больше золота.', 'warn');
+    if (this.state.resources.gold < cost) return this.say('Недостаточно золота.', 'warn', 'nogold');
     this.state.resources.gold -= cost;
     p.damage = 0;
-    this.say(`База «${p.name}» отремонтирована. −${cost} золота`, 'info', 'farm');
+    this.say(`База «${p.name}» отремонтирована. −${cost} золота`, 'info', 'jobdone');
     this.emit();
   }
 

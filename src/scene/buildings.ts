@@ -168,6 +168,13 @@ export class MainBuildings {
     this.riser.update(dt);
   }
 
+  /** Здания на сцене и строящееся (в лесах) для полосок здоровья. */
+  structures(): { node: TransformNode; scaffold: boolean }[] {
+    const list = [...this.nodes.values()].map((node) => ({ node, scaffold: false }));
+    if (this.scaffold) list.push({ node: this.scaffold.node, scaffold: true });
+    return list;
+  }
+
   private place(node: TransformNode, id: BuildingId) {
     node.parent = this.parent;
     node.position.copyFrom(BUILDING_SPOTS[id]);

@@ -16,14 +16,15 @@ import type { Level } from '../state/types';
 import type { ModelLibrary, ModelName } from './library';
 import type { ModelInstance } from './models';
 import * as P from './placeholders';
+import type { UnitNode } from './selection';
 
-/** Модель по ступени демона. Стражника Рока и Инфернала пока нет: их заменяют
- * увеличенный Страж Скверны и каменная заглушка, пока модели не выгружены из игры. */
+/** Модель по ступени демона. Пока модели не загружены (до пароля), их заменяют
+ * заглушки: тёмный зверь и каменный инфернал. */
 const LOOK: Record<Level, { model: ModelName | null; scale: number }> = {
   1: { model: 'felhound', scale: 0.75 },
   2: { model: 'felgaurd', scale: 0.75 },
-  3: { model: 'felgaurd', scale: 1.1 },
-  4: { model: null, scale: 1 },
+  3: { model: 'doomguard', scale: 0.8 },
+  4: { model: 'infernal', scale: 0.8 },
 };
 
 /** Места демонов у ратуши, со стороны врат (врата в 48 единицах за базой). */
@@ -60,6 +61,10 @@ export class Demons {
   }
 
   /** shown: сильнейшие демоны по порядку; extra: сколько ещё ушло в лагерь. */
+  units(): UnitNode[] {
+    return [...this.demons.values()].map((d) => ({ taskId: d.taskId, node: d.root, size: d.rank >= 3 ? 4.2 : 3, enemy: true }));
+  }
+
   sync(shown: DemonView[], extra: number) {
     const ids = new Set(shown.map((d) => d.taskId));
     for (const d of [...this.demons.values()]) if (!ids.has(d.taskId)) this.remove(d);
@@ -88,7 +93,10 @@ export class Demons {
     d.model = null;
     for (const c of d.root.getChildren()) c.dispose();
     const look = LOOK[d.rank];
-    const model = look.model ? (this.lib?.create(look.model, look.scale) ?? null) : null;
+    // Пока страж рока или инфернал не догрузились, старшие ступени стоят крупным стражем Скверны.
+    const model =
+      (look.model ? this.lib?.create(look.model, look.scale) : null) ??
+      (d.rank === 3 ? (this.lib?.create('felgaurd', 1.1) ?? null) : null);
     if (model) {
       model.root.parent = d.root;
       model.root.getChildMeshes().forEach((m) => {

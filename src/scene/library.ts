@@ -10,6 +10,7 @@ import { instantiate, loadContainer, type ModelInstance } from './models';
 export const MODEL_NAMES = [
   'townhall',
   'farm',
+  'farmbirth',
   'humanbarracks',
   'altarofkings',
   'goldmine',
@@ -22,6 +23,11 @@ export const MODEL_NAMES = [
   'demongate',
   'felhound',
   'felgaurd',
+  'doomguard',
+  'infernal',
+  'heropaladin',
+  'heroarchmage',
+  'herobloodelf',
   'rallypoint',
   // Мелочи на карте.
   'crates0',
@@ -48,9 +54,35 @@ export const MODEL_NAMES = [
   'lordaerontree1',
   'lordaerontree2',
   'lordaerontree3',
+  'lanternpost0',
+  'signpost0',
+  'summergrass0',
+  'summergrass1',
+  'riverrushes0',
+  'lilypad0',
 ] as const;
 
 export type ModelName = (typeof MODEL_NAMES)[number];
+
+/**
+ * Эти модели грузятся вторыми, когда база уже стоит в моделях WC3: юниты, демоны, врата
+ * Легиона, герои других классов и постройка фермы. До их загрузки на их месте видны заглушки.
+ */
+export const LATE_MODELS: readonly ModelName[] = [
+  'footman',
+  'rifleman',
+  'knight',
+  'gryphonrider',
+  'demongate',
+  'felhound',
+  'felgaurd',
+  'doomguard',
+  'infernal',
+  'heropaladin',
+  'heroarchmage',
+  'herobloodelf',
+  'farmbirth',
+];
 
 /** Масштаб WC3 → мир игры: ратуша WC3 шириной ~450 единиц становится ~11. */
 export const WC3_SCALE = 0.025;
@@ -60,10 +92,10 @@ export class ModelLibrary {
 
   constructor(private scene: Scene) {}
 
-  /** Загружает всё, что найдётся. Возвращает число загруженных моделей. */
-  async loadAll(): Promise<number> {
+  /** Загружает то, что найдётся из списка (по умолчанию все). Возвращает число загруженных моделей. */
+  async loadAll(names: readonly ModelName[] = MODEL_NAMES): Promise<number> {
     await Promise.all(
-      MODEL_NAMES.map(async (name) => {
+      names.map(async (name) => {
         try {
           const bytes = await loadArt(`models/${name}.glb`);
           if (!bytes) return;

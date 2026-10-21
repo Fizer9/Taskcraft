@@ -5,6 +5,7 @@
 import { BALANCE, UNITS } from '../state/config';
 import type { Store } from '../state/store';
 import { openModal } from './modal';
+import { sounds } from '../audio/sound';
 
 const PAGES: { icon: string; title: string; text: string[] }[] = [
   {
@@ -76,6 +77,8 @@ export function openTutorial(store: Store) {
       (last ? '' : '<button class="btn" data-a="skip" style="margin-right:auto">Пропустить</button>') +
       (page ? '<button class="btn" data-a="back">Назад</button>' : '') +
       `<button class="btn" data-a="next">${last ? 'В бой!' : 'Дальше'}</button></div>`;
+    // Каждая страница звучит как подсказка в WC3.
+    void sounds.play('hint');
   };
   body.addEventListener('click', (e) => {
     const a = (e.target as HTMLElement).closest<HTMLElement>('[data-a]')?.dataset.a;

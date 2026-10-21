@@ -68,6 +68,30 @@ export async function loadAsset(path: string): Promise<Uint8Array | null> {
  * (vite отдаёт его напрямую, в сборку для сайта эта папка не попадает).
  */
 export async function loadArt(path: string): Promise<Uint8Array | null> {
+  progress.started++;
+  notify();
+  try {
+    return await readArt(path);
+  } finally {
+    progress.finished++;
+    notify();
+  }
+}
+
+/** Сколько файлов графики начали и закончили грузиться: по этому идёт полоска загрузки. */
+const progress = { started: 0, finished: 0 };
+const listeners = new Set<(p: { started: number; finished: number }) => void>();
+function notify() {
+  for (const fn of listeners) fn(progress);
+}
+/** Подписка на ход загрузки; возвращает отписку. */
+export function onArtProgress(fn: (p: { started: number; finished: number }) => void): () => void {
+  listeners.add(fn);
+  fn(progress);
+  return () => listeners.delete(fn);
+}
+
+async function readArt(path: string): Promise<Uint8Array | null> {
   const bytes = await loadAsset(path).catch(() => null);
   if (bytes || !import.meta.env.DEV) return bytes;
   const res = await fetch(`${import.meta.env.BASE_URL}assets-src/${path}`).catch(() => null);

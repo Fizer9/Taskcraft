@@ -110,6 +110,7 @@ export function openSettings(store: Store, sync: Sync) {
       <button class="btn" data-action="open-spheres">Сферы жизни</button>
       <button class="btn" data-action="open-bases">Базы в игре</button>
       <button class="btn" data-action="open-council">Совет земель</button>
+      <button class="btn" data-action="open-quests">Задания</button>
       <button class="btn" data-action="open-hall">Зал славы</button>
       <button class="btn" data-action="open-vault">Хранилище тайн</button>
       <button class="btn" data-action="open-tutorial">Как играть</button>

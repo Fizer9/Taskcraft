@@ -463,12 +463,17 @@ class Gltf:
             f.write(struct.pack('<II', len(self.bin), 0x004E4942) + self.bin)
 
 
-def convert(mdx_path, out_path, roots, tex_size, team_color=(0, 66, 255), replaceable=None):
+def convert(mdx_path, out_path, roots, tex_size, team_color=(0, 66, 255), replaceable=None, portrait=False):
     replaceable = replaceable or {}
     m = parse_mdx(open(mdx_path, 'rb').read())
     gl = Gltf()
     J = gl.j
-    seqs = [s for s in m['sequences'] if not any(w in s['name'].lower() for w in SKIP_SEQUENCES)]
+    if portrait:
+        # Модель портрета (*_portrait.mdx): только обычные «Portrait N» и «Portrait Talk N»,
+        # без вариантов аватара; задник портрета не нужен, его рисует консоль.
+        seqs = [s for s in m['sequences'] if 'portrait' in s['name'].lower() and 'alternate' not in s['name'].lower()]
+    else:
+        seqs = [s for s in m['sequences'] if not any(w in s['name'].lower() for w in SKIP_SEQUENCES)]
 
     # Узлы: корень с поворотом Z→Y, под ним иерархия костей. Локальный перенос узла
     # = pivot − pivot родителя, так что поворот кости идёт вокруг её pivot, как в WC3.
@@ -564,8 +569,16 @@ def convert(mdx_path, out_path, roots, tex_size, team_color=(0, 66, 255), replac
             out['alphaMode'] = 'BLEND'
         J['materials'].append(out)
 
+    def material_texture(mi):
+        if mi >= len(m['materials']) or not m['materials'][mi]['layers']:
+            return ''
+        return (source(m['materials'][mi]['layers'][0]['slots'].get(0), 'color') or '').lower()
+
     # Видимость геосетов по последовательностям (мешок с золотом, бревно, кишки при смерти).
     visible = {}
+    # Геосеты, которые появляются или пропадают посреди анимации (леса и стены в модели
+    # постройки): моменты смены видимости в секундах от начала последовательности.
+    switches = {}
     for ga in m['geosetAnims']:
         track = ga['tracks'].get(b'KGAO')
         names = []
@@ -574,12 +587,21 @@ def convert(mdx_path, out_path, roots, tex_size, team_color=(0, 66, 255), replac
             a = sample(track, mid, False, [ga['alpha']])[0] if track else ga['alpha']
             if a > 0.5:
                 names.append(s['name'])
+            if track and track['gseq'] < 0:
+                keys = [[0, sample(track, s['start'], False, [1])[0] > 0.5]]
+                for f, v in track['keys']:
+                    if s['start'] < f <= s['end'] and (v[0] > 0.5) != keys[-1][1]:
+                        keys.append([round((f - s['start']) / 1000, 3), v[0] > 0.5])
+                if len(keys) > 1:
+                    switches.setdefault(ga['geoset'], {})[s['name']] = keys
         visible[ga['geoset']] = names
 
     # Геосеты → меши со скиннингом.
     for gi, g in enumerate(m['geosets']):
         if g.get('lod', 0) != 0:
             continue  # только самый детальный уровень
+        if portrait and (visible.get(gi) == [] or 'portrait_bg' in material_texture(g['material'])):
+            continue
         pos = g['positions']
         count = len(pos) // 3
         p = []
@@ -633,6 +655,8 @@ def convert(mdx_path, out_path, roots, tex_size, team_color=(0, 66, 255), replac
         node = {'name': name, 'mesh': len(J['meshes']) - 1, 'extras': {'geoset': gi}}
         if gi in visible:
             node['extras']['visibleIn'] = visible[gi]
+        if gi in switches:
+            node['extras']['visibleSwitch'] = switches[gi]
         if skin_index is not None:
             node['skin'] = skin_index
         J['nodes'].append(node)
@@ -661,6 +685,13 @@ def convert(mdx_path, out_path, roots, tex_size, team_color=(0, 66, 255), replac
                 outp = gl.accessor(values, 5126, 'VEC%d' % comps)
                 anim['samplers'].append({'input': inp, 'output': outp, 'interpolation': 'LINEAR'})
                 anim['channels'].append({'sampler': len(anim['samplers']) - 1, 'target': {'node': node_index[oid], 'path': path}})
+        if not anim['channels'] and any(s['name'] in sw for sw in switches.values()):
+            # Модель постройки (farmbirth.mdx) без костей: в ней только появляются леса и стены.
+            # Пустая дорожка на корне задаёт длину анимации, чтобы по ней шли visibleSwitch.
+            inp = gl.accessor([0.0, max((s['end'] - s['start']) / 1000, 0.001)], 5126, 'SCALAR', minmax=True)
+            outp = gl.accessor(ROOT_ROTATION * 2, 5126, 'VEC4')
+            anim['samplers'].append({'input': inp, 'output': outp, 'interpolation': 'STEP'})
+            anim['channels'].append({'sampler': 0, 'target': {'node': 0, 'path': 'rotation'}})
         if anim['channels']:
             J['animations'].append(anim)
 
@@ -681,6 +712,7 @@ def main():
     ap.add_argument('--tex-size', type=int, default=512, help='максимальный размер текстур, 0 — без уменьшения')
     ap.add_argument('--replaceable', action='append', default=[], metavar='ID=ПУТЬ',
                     help='текстура для заменяемого id, например 31=Doodads/Terrain/LordaeronTree/LordaeronTree (без _Diffuse)')
+    ap.add_argument('--portrait', action='store_true', help='модель портрета: анимации Portrait и Portrait Talk без задника')
     ap.add_argument('--team-color', default='0,66,255', help='цвет команды R,G,B (по умолчанию синий игрока 1), "none" — не запекать')
     a = ap.parse_args()
     roots = []
@@ -689,7 +721,7 @@ def main():
         roots += [os.path.join(r, '_de.w3mod'), os.path.join(r, '_hd.w3mod'), r]
     team = None if a.team_color == 'none' else tuple(int(x) for x in a.team_color.split(','))
     repl = {int(k): v for k, v in (x.split('=', 1) for x in a.replaceable)}
-    m, seqs = convert(a.mdx, a.out, roots, a.tex_size, team, repl)
+    m, seqs = convert(a.mdx, a.out, roots, a.tex_size, team, repl, a.portrait)
     print('%s: MDX %d, %d геосетов, %d костей, %d анимаций → %s (%.1f МБ)' % (
         os.path.basename(a.mdx), m['version'], len(m['geosets']), len(m['nodes']), len(seqs), a.out, os.path.getsize(a.out) / 1e6))
 

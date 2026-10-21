@@ -162,3 +162,14 @@ describe('множители баланса из настроек', () => {
     assert.equal(store.state.hero.xp, 60);
   });
 });
+
+describe('здоровье юнита', () => {
+  test('без срока полная полоска, к сроку тает', async () => {
+    const { unitHealth } = await import('../src/state/economy');
+    assert.equal(unitHealth({ due: null }, '2026-10-20'), 1);
+    assert.equal(unitHealth({ due: '2026-10-30' }, '2026-10-20'), 1);
+    assert.equal(unitHealth({ due: '2026-10-23' }, '2026-10-20'), 0.5);
+    assert.equal(unitHealth({ due: '2026-10-20' }, '2026-10-20'), 0.125);
+    assert.equal(unitHealth({ due: '2026-10-10' }, '2026-10-20'), 0.05);
+  });
+});

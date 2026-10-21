@@ -20,10 +20,12 @@
 
     <header id="topbar">
       <div class="menu">
-        <button data-action="open-settings" title="Настройки (F10)">Меню</button>
-        <button data-action="toggle-side" title="Свитки (F9)">Свитки</button>
+        <button data-action="open-quests" title="Журнал заданий (F9)">Задания</button>
+        <button data-action="open-settings" id="menu-btn" title="Настройки (F10)">Меню</button>
+        <button data-action="toggle-side" title="Свитки (Ё)">Свитки</button>
       </div>
       <div id="clock"></div>
+      <div id="daydial"><div class="dial-wheel"><i class="sun"></i><i class="moon"></i></div></div>
       <div id="resources"></div>
     </header>
 
@@ -43,16 +45,25 @@
       <div id="side-list"></div>
     </aside>
 
+    <!-- Кнопки героев слева сверху и значок простаивающих баз, как в WC3. -->
+    <div id="left-icons">
+      <div id="hero-buttons"></div>
+      <button id="idle-bases" data-action="idle-base" hidden></button>
+    </div>
+    <div id="quest-done"></div>
+
     <div id="guard"></div>
     <div id="messages"></div>
 
     <footer id="console">
       <div class="frame minimap-frame"><canvas id="minimap" width="180" height="180"></canvas></div>
+      <div class="frame minimap-buttons" id="minimap-buttons"></div>
       <div class="frame portrait-frame">
         <div id="portrait"></div>
         <div id="hero-bars"></div>
       </div>
       <div class="frame info-frame"><div id="info"></div></div>
+      <div class="frame inventory-frame" id="inventory"></div>
       <div class="frame card-frame"><div id="command-card"></div></div>
     </footer>
 

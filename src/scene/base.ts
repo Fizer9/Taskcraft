@@ -12,6 +12,7 @@ import {
   TransformNode,
   Vector3,
 } from '@babylonjs/core';
+import { loadArt } from '../assets/loader';
 import type { BuildingId, Project, Task, TechId } from '../state/types';
 import { BUILDING_SPOTS, MainBuildings, Riser } from './buildings';
 import type { ModelLibrary, ModelName } from './library';
@@ -22,6 +23,7 @@ import { Troops } from './troops';
 import { Demons, type DemonView } from './legion';
 import { BlightFx } from './blight';
 import { Meteor } from './meteor';
+import type { UnitNode } from './selection';
 
 export const BANNER_COLORS: Record<Project['kind'], string> = {
   work: '#2f6bff',
@@ -73,6 +75,10 @@ interface Floater {
 }
 
 const FLOAT_LIFE = 2;
+/** Сколько секунд строится новая ферма (в WC3 35, здесь короче: ферму покупают за раз). */
+const FARM_BIRTH = 6;
+/** Казарма в координатах базы и её дверь: новые юниты выходят оттуда к флагу сбора. */
+const BARRACKS = new Vector3(-13, 0, 9);
 /**
  * Скорость, под которую сделан шаг крестьянина: 190 единиц WC3 в секунду. Идёт быстрее
  * или медленнее, и анимация ускоряется или замедляется вместе с ним.
@@ -88,7 +94,8 @@ const BODY = 0.5;
 
 export class Base {
   readonly root: TransformNode;
-  private label: Mesh;
+  /** Название базы и его цвет: показывается над ратушей при наведении и выборе (world.ts). */
+  label = { text: '', color: '#ffd34d' };
   private frozen = false;
   private captured = false;
   /** Модель ратуши: на главной базе её анимация показывает тир (ратуша, крепость, замок). */
@@ -188,7 +195,7 @@ export class Base {
     if (!main) {
       const bar = P.barracks(scene);
       bar.parent = this.root;
-      bar.position.set(-13, 0, 9);
+      bar.position.copyFrom(BARRACKS);
       const alt = P.altar(scene);
       alt.parent = this.root;
       alt.position.set(13, 0, 10);
@@ -213,7 +220,7 @@ export class Base {
     this.selection.isVisible = false;
     this.selection.isPickable = false;
 
-    this.label = this.makeLabel(project.name, '#ffd34d');
+    this.label = { text: project.name, color: '#ffd34d' };
 
     // Нанятые юниты строятся у казармы, а у главной базы у ратуши. К крепости идут
     // между шахтой и ратушей, чтобы не проходить сквозь здания.
@@ -221,8 +228,8 @@ export class Base {
       scene,
       this.root,
       main
-        ? { rally: new Vector3(9, 0, 14), fortress: null, route: [] }
-        : { rally: new Vector3(-18, 0, 15), fortress: new Vector3(0, 0, -48), route: [new Vector3(-8, 0, 4), new Vector3(-7, 0, -28)] },
+        ? { rally: new Vector3(9, 0, 14), door: new Vector3(3, 0, 7), fortress: null, route: [] }
+        : { rally: new Vector3(-18, 0, 15), door: BARRACKS.add(new Vector3(1.5, 0, 4.2)), fortress: new Vector3(0, 0, -48), route: [new Vector3(-8, 0, 4), new Vector3(-7, 0, -28)] },
       project.id,
     );
 
@@ -246,33 +253,6 @@ export class Base {
     this.root.getChildMeshes().forEach((m) => {
       if (m.isPickable) m.metadata = { ...(m.metadata ?? {}), baseId: project.id };
     });
-  }
-
-  private makeLabel(text: string, color: string): Mesh {
-    const tex = new DynamicTexture('label', { width: 512, height: 96 }, this.scene, true);
-    tex.hasAlpha = true;
-    const ctx = tex.getContext() as CanvasRenderingContext2D;
-    ctx.clearRect(0, 0, 512, 96);
-    ctx.font = 'bold 44px Georgia, serif';
-    ctx.textAlign = 'center';
-    ctx.lineWidth = 8;
-    ctx.strokeStyle = 'rgba(0,0,0,0.85)';
-    ctx.strokeText(text, 256, 62);
-    ctx.fillStyle = color;
-    ctx.fillText(text, 256, 62);
-    tex.update();
-    const m = new StandardMaterial('labelMat', this.scene);
-    m.diffuseTexture = tex;
-    m.emissiveColor = Color3.White();
-    m.useAlphaFromDiffuseTexture = true;
-    m.disableLighting = true;
-    m.backFaceCulling = false;
-    const plane = MeshBuilder.CreatePlane('labelPlane', { width: 20, height: 3.75 }, this.scene);
-    plane.material = m;
-    plane.billboardMode = Mesh.BILLBOARDMODE_ALL;
-    plane.position.set(this.project.slot.x, 21, this.project.slot.z);
-    plane.isPickable = false;
-    return plane;
   }
 
   private makeHpBar(parent: TransformNode): Mesh {
@@ -302,6 +282,32 @@ export class Base {
     this.demons.setLibrary(lib, onMesh);
     if (this.portal) this.dressPortal();
     for (const s of [...this.swaps]) this.swap(s);
+    this.placeGuards();
+    for (const w of this.workers) {
+      const model = lib.create('peasant');
+      if (!model) continue;
+      for (const c of w.root.getChildren()) c.dispose();
+      model.root.parent = w.root;
+      model.root.getChildMeshes().forEach(onMesh);
+      model.play('Stand 1');
+      w.model = model;
+    }
+  }
+
+  /** Догрузились юниты, демоны и врата (LATE_MODELS): меняем их заглушки на модели. */
+  upgradeModels() {
+    if (!this.lib) return;
+    this.troops.setLibrary(this.lib, this.onModelMesh);
+    this.demons.setLibrary(this.lib, this.onModelMesh);
+    if (this.portal && !this.portal.model) this.dressPortal();
+    this.placeGuards();
+  }
+
+  /** Стража у вражеской крепости: две гончие и страж Скверны, если их модели уже есть. */
+  private placeGuards() {
+    const lib = this.lib;
+    if (!lib || this.guards.length) return;
+    const onMesh = this.onModelMesh;
     if (this.fortressNode) {
       const posts: [ModelName, number, number][] = [
         ['felhound', -5.5, 8],
@@ -320,15 +326,6 @@ export class Base {
         g.play('Stand 1');
         this.guards.push(g);
       }
-    }
-    for (const w of this.workers) {
-      const model = lib.create('peasant');
-      if (!model) continue;
-      for (const c of w.root.getChildren()) c.dispose();
-      model.root.parent = w.root;
-      model.root.getChildMeshes().forEach(onMesh);
-      model.play('Stand 1');
-      w.model = model;
     }
   }
 
@@ -398,12 +395,23 @@ export class Base {
       ['wheelbarrel', -22, -4, 1.1],
       ['lords_rock0', -27, 1, 0.5],
       ['lords_rock2', 27, 14, 2],
+      // Фонари у дороги к ратуше, указатель на развилке и трава по краю утоптанной земли.
+      ['lanternpost0', -4.5, main ? 26 : 24, Math.PI],
+      ['lanternpost0', 4.5, main ? 26 : 24, Math.PI],
+      ['signpost0', 8, main ? 31 : 28, -0.5],
+      ['summergrass0', -26, 12, 0.4],
+      ['summergrass1', 26, -9, 1.3],
+      ['summergrass0', -18, -20, 2.2],
+      ['summergrass1', 3, -24, 0.9],
+      ['summergrass0', 28, 22, 0.1],
+      ['summergrass1', -28, -10, 2.8],
     ];
     if (!main) {
       items.push(
         ['armorrack', -8, 12.5, -0.4],
         ['weapons', -21, 9, 1.2],
-        ['rallypoint', -14, 21, 0],
+        // Флажок сбора у угла строя: новые юниты выходят из казарм и бегут к нему.
+        ['rallypoint', -19.8, 13.2, 0],
         // Логово демонов: всё вокруг крепости (она в 48 единицах от ратуши).
         ['skullonstick0', -10, -41, 0.3],
         ['skullonstick1', 10, -41, -0.3],
@@ -481,12 +489,11 @@ export class Base {
       else this.hall?.play(this.hallAnim);
     }
     this.frozen = on;
-    this.label.dispose();
     this.label = captured
-      ? this.makeLabel(`☠ ${this.project.name}`, '#7dff5a')
+      ? { text: `☠ ${this.project.name}`, color: '#7dff5a' }
       : on
-        ? this.makeLabel(`❄ ${this.project.name}`, '#a8dcff')
-        : this.makeLabel(this.project.name, '#ffd34d');
+        ? { text: `❄ ${this.project.name}`, color: '#a8dcff' }
+        : { text: this.project.name, color: '#ffd34d' };
     // Материалы общие для всех баз: меняем материал диска, а не его цвет.
     const m = P.mat(this.scene, on ? '#cfe8f7' : '#6b5a3a');
     m.alpha = on ? 0.7 : 0.55;
@@ -505,6 +512,11 @@ export class Base {
 
   setBlight(blighted: boolean, damage: number) {
     this.blight.set(blighted, damage);
+  }
+
+  /** Земля под скверной нарисована тайлами WC3. */
+  useBlightTiles(on: boolean) {
+    this.blight.useTiles(on);
   }
 
   /** size: число брошенных свитков, 0 закрывает портал. */
@@ -551,6 +563,21 @@ export class Base {
     }
   }
 
+  /** Здания дерева технологий у главной ратуши. */
+  structures(): { node: TransformNode; scaffold: boolean }[] {
+    return this.tech?.structures() ?? [];
+  }
+
+  /** Рабочие на виду (для теней-пятен). */
+  workerNodes(): TransformNode[] {
+    return this.frozen ? [] : this.workers.map((w) => w.root);
+  }
+
+  /** Юниты задач и демоны этой базы. */
+  units(): UnitNode[] {
+    return [...this.troops.units(), ...this.demons.units()];
+  }
+
   setSelected(on: boolean) {
     this.selection.isVisible = on;
   }
@@ -570,8 +597,32 @@ export class Base {
       const swap = { node: f as TransformNode, model: 'farm' as ModelName, scale: 0.85 };
       this.swaps.push(swap);
       const inst = this.lib ? this.swap(swap) : null;
-      if (fresh) this.riser.add(inst?.root ?? f);
+      if (fresh && !this.raise(inst?.root ?? f)) this.riser.add(inst?.root ?? f);
     }
+  }
+
+  /**
+   * Новая ферма строится, как в WC3: леса, стены и крыша появляются по очереди (модель
+   * постройки farmbirth, её минута ужата до FARM_BIRTH секунд), потом на её месте ферма.
+   * false, если модели постройки нет: тогда ферма просто вырастает из земли.
+   */
+  private raise(node: TransformNode): boolean {
+    const birth = this.lib?.create('farmbirth', 0.85);
+    if (!birth) return false;
+    birth.root.parent = node.parent;
+    birth.root.position.copyFrom(node.position);
+    birth.root.rotation.copyFrom(node.rotation);
+    birth.root.getChildMeshes().forEach((m) => {
+      m.isPickable = false;
+      this.onModelMesh(m);
+    });
+    node.setEnabled(false);
+    birth.playThen('Birth', 'Stand 1', 60 / FARM_BIRTH);
+    window.setTimeout(() => {
+      birth.dispose();
+      node.setEnabled(true);
+    }, FARM_BIRTH * 1000);
+    return true;
   }
 
   setFortressHp(hp: number, max: number) {
@@ -593,7 +644,6 @@ export class Base {
     for (const g of [...this.scene.animationGroups]) if (g.targetedAnimations.some((t) => nodes.has(t.target))) g.dispose();
     const meshes = this.root.getChildMeshes(false);
     for (const sk of [...this.scene.skeletons]) if (meshes.some((m) => m.skeleton === sk)) sk.dispose();
-    this.label.dispose();
     this.root.dispose();
   }
 
@@ -1007,7 +1057,7 @@ export class Base {
     if (n < 1) return;
     this.pending[w.job] -= n;
     const plane = MeshBuilder.CreatePlane('float', { width: 4, height: 1.5 }, this.scene);
-    plane.material = floatMaterial(this.scene, `+${n}`, w.job === 'gold' ? '#ffd84a' : '#5adf4a');
+    plane.material = floatMaterial(this.scene, `+${n}`, w.job === 'gold' ? '#ffd84a' : '#5adf4a', w.job === 'gold' ? coinImage() : null);
     plane.billboardMode = Mesh.BILLBOARDMODE_ALL;
     plane.isPickable = false;
     plane.parent = this.root;
@@ -1026,11 +1076,27 @@ export class Base {
   }
 }
 
+/** Монета WC3 для «+N» золота (ui/coin.png); пока её нет, надпись без монеты. */
+let coin: HTMLImageElement | null = null;
+let coinAsked = false;
+function coinImage(): HTMLImageElement | null {
+  if (!coinAsked) {
+    coinAsked = true;
+    void loadArt('ui/coin.png').then((bytes) => {
+      if (!bytes) return;
+      const img = new Image();
+      img.onload = () => (coin = img);
+      img.src = URL.createObjectURL(new Blob([bytes as BlobPart], { type: 'image/png' }));
+    });
+  }
+  return coin;
+}
+
 /** Материалы надписей «+N» общие: таких надписей немного разных, а всплывают они часто. */
 const floatMats = new Map<string, StandardMaterial>();
 
-function floatMaterial(scene: Scene, text: string, color: string): StandardMaterial {
-  const key = text + color;
+function floatMaterial(scene: Scene, text: string, color: string, icon: HTMLImageElement | null = null): StandardMaterial {
+  const key = text + color + (icon ? 'i' : '');
   let m = floatMats.get(key);
   if (m && m.getScene() === scene) return m;
   const tex = new DynamicTexture('floatText', { width: 256, height: 96 }, scene, true);
@@ -1041,9 +1107,12 @@ function floatMaterial(scene: Scene, text: string, color: string): StandardMater
   ctx.textAlign = 'center';
   ctx.lineWidth = 8;
   ctx.strokeStyle = 'rgba(0,0,0,0.9)';
-  ctx.strokeText(text, 128, 70);
+  // Монета слева от числа, как над ратушей в WC3.
+  const x = icon ? 150 : 128;
+  if (icon) ctx.drawImage(icon, x - ctx.measureText(text).width / 2 - 70, 14, 64, 64);
+  ctx.strokeText(text, x, 70);
   ctx.fillStyle = color;
-  ctx.fillText(text, 128, 70);
+  ctx.fillText(text, x, 70);
   tex.update();
   m = new StandardMaterial('floatMat', scene);
   m.diffuseTexture = tex;

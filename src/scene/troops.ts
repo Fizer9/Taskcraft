@@ -7,6 +7,7 @@ import type { Level, Task } from '../state/types';
 import type { ModelLibrary, ModelName } from './library';
 import { turnTowards, type ModelInstance } from './models';
 import * as P from './placeholders';
+import type { UnitNode } from './selection';
 
 const MODEL: Record<Level, ModelName> = { 1: 'footman', 2: 'rifleman', 3: 'knight', 4: 'gryphonrider' };
 /**
@@ -159,6 +160,11 @@ export class Troops {
     tr.model?.dispose();
     tr.root.dispose();
     this.troops.delete(tr.taskId);
+  }
+
+  /** Юниты на сцене (кроме уходящих победителей) для кругов и рамки выделения. */
+  units(): UnitNode[] {
+    return [...this.troops.values()].filter((t) => t.state !== 'victory').map((t) => ({ taskId: t.taskId, node: t.root, size: t.level >= 3 ? 3.4 : 2.6 }));
   }
 
   /** Есть ли юниты, которые сейчас бьются у крепости. */

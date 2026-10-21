@@ -48,6 +48,7 @@ import {
   overLimitFactor,
   gameMonth,
   activeDreadlord,
+  unitHealth,
 } from '../state/economy';
 import { plural, type GameEvent, type Store } from '../state/store';
 import { MAIN_HALL_ID, type AbilityId, type HeroKind, type Level, type Project, type Repeat, type Task } from '../state/types';
@@ -87,8 +88,10 @@ import {
   type TechId,
 } from '../state/tech';
 import { openProject } from './project';
+import { openQuests } from './quests';
+import { Portrait3D } from './portrait3d';
 
-type Selection = { kind: 'base'; id: string } | { kind: 'task'; id: string } | { kind: 'hero' };
+type Selection = { kind: 'base'; id: string } | { kind: 'task'; id: string } | { kind: 'hero' } | { kind: 'group'; ids: string[]; hero: boolean };
 
 interface Command {
   icon: string;
@@ -121,13 +124,62 @@ function clock(ms: number): string {
   return `${h}:${String(m).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
 }
 
+/** Короткие подписи портретов юнитов в сетке выбранных. */
+const UNIT_SHORT: Record<Level, string> = { 1: 'Пх', 2: 'Ст', 3: 'Рц', 4: 'Гр' };
+
+function groupCell(attrs: string, short: string, title: string, health: number): string {
+  const k = Math.max(0, Math.min(1, health));
+  const color = k > 0.5 ? 'ok' : k > 0.25 ? 'mid' : 'low';
+  return `<div class="group-cell" ${attrs} title="${esc(title)}"><span>${short}</span><i class="${color}" style="width:${(k * 100).toFixed(0)}%"></i></div>`;
+}
+
 function bar(kind: string, value: number, max: number, label: string): string {
   const pct = max > 0 ? Math.max(0, Math.min(100, (value / max) * 100)) : 0;
   return `<div class="bar ${kind}"><span style="width:${pct.toFixed(1)}%"></span><em>${label}</em></div>`;
 }
 
+/** Тип атаки и брони юнита по уровню задачи, как на карточке WC3 (иконки ui/ic-*.png). */
+const UNIT_COMBAT: Record<Level, { attack: string; armor: string }> = {
+  1: { attack: 'melee', armor: 'large' },
+  2: { attack: 'piercing', armor: 'medium' },
+  3: { attack: 'melee', armor: 'large' },
+  4: { attack: 'hero', armor: 'medium' },
+};
+const ATTACK_NAMES: Record<string, string> = { melee: 'обычная', piercing: 'колющая', hero: 'магическая', chaos: 'хаос' };
+const ARMOR_NAMES: Record<string, string> = { medium: 'средняя', large: 'тяжёлая', hero: 'героя', fortified: 'укреплённая' };
+
+/** Сила, ловкость и разум героев людей из WC3: на первом уровне и прибавка за уровень. */
+const HERO_STATS: Record<HeroKind, [number, number, number, number, number, number]> = {
+  mountainking: [24, 11, 15, 3, 1.5, 1.5],
+  paladin: [22, 13, 17, 2.7, 1.5, 1.8],
+  archmage: [14, 17, 19, 1.8, 1, 3.2],
+  bloodmage: [18, 14, 19, 2, 1, 3],
+};
+
+function stat(icon: string, value: string | number, title: string): string {
+  return `<span class="stat" title="${esc(title)}"><i class="ic ic-${icon}"></i>${value}</span>`;
+}
+
+/** Строка цены подсказки: золото, дерево и мана с иконками, остальное как есть. */
+function costHtml(cost: string): string {
+  return cost
+    .split(', ')
+    .map((part) => {
+      const m = part.match(/^([+−-]?\d+) (золота|дерева|маны)(.*)$/);
+      if (!m) return esc(part);
+      const icon = { золота: 'gold', дерева: 'lumber', маны: 'mana' }[m[2]]!;
+      return `<span class="price"><i class="ic ic-${icon}"></i>${m[1]}${esc(m[3])}</span>`;
+    })
+    .join(' ');
+}
+
 export class Hud {
   private sel: Selection;
+  /** Предметы в инвентаре героя и кнопки у мини-карты (renderConsoleSlots). */
+  private slotItems: Command[] = [];
+  private mapButtons: Command[] = [];
+  /** Мини-карта без рельефа, только значки. */
+  private plainMap = false;
   /** Фильтр панели свитков; живёт только в этой вкладке. */
   private filter: TaskFilter = { ...DEFAULT_FILTER };
   private filterProjects = '';
@@ -150,6 +202,16 @@ export class Hud {
   private legionShown = false;
   /** Долгое нажатие на команду показало подсказку: следующий клик не выполняет её. */
   private longPress = false;
+  /** Группы Ctrl+1…9, как в WC3, и последнее нажатие цифры (двойное ведёт камеру). */
+  private groups = new Map<number, Selection>();
+  private lastGroupKey = { n: 0, at: 0 };
+  /** Какая простаивающая база показана последней (F8 перебирает их по кругу). */
+  private idleIndex = 0;
+  /** Сколько целей недели было выполнено: новая выполненная показывает «Задание выполнено». */
+  private weekDone: { start: string; done: number } | null = null;
+  private questTimer = 0;
+  private heroTap = { i: -1, at: 0 };
+  private portrait3d: Portrait3D;
 
   constructor(
     private store: Store,
@@ -160,10 +222,34 @@ export class Hud {
     this.awayMs = Date.now() - store.state.lastTick;
     this.bootTick = store.state.lastTick;
     world.onSelectBase = (id) => {
-      if (id) this.select({ kind: 'base', id });
+      if (!id) return;
+      this.select({ kind: 'base', id });
+      void sounds.selectBuilding();
     };
     world.onSelectTask = (id) => this.pick({ kind: 'task', id });
     world.onSelectHero = () => this.pick({ kind: 'hero' });
+    world.onSelectGroup = (ids, hero) => this.pickUnits(ids, hero);
+    world.onOrderHero = (id) => store.moveHero(id);
+    world.onSelectSame = (ids) => this.pickUnits(ids, false);
+    // Shift-клик добавляет юнит к выбору или убирает его, как в WC3.
+    world.onToggleUnit = (id) => {
+      const sel = this.sel;
+      const ids = sel.kind === 'task' ? [sel.id] : sel.kind === 'group' ? [...sel.ids] : [];
+      const hero = sel.kind === 'hero' || (sel.kind === 'group' && sel.hero);
+      const i = ids.indexOf(id);
+      if (i >= 0) ids.splice(i, 1);
+      else ids.push(id);
+      if (!ids.length && !hero) this.select({ kind: 'base', id: this.contextBase()?.id ?? MAIN_HALL_ID });
+      else this.pickUnits(ids, hero);
+    };
+
+    // Говорящая голова героя поверх букв портрета; буквы остаются, пока модели нет.
+    $('portrait').innerHTML = '<div id="portrait-face"></div>';
+    this.portrait3d = new Portrait3D($('portrait'));
+    void this.portrait3d.load().then(() => this.render());
+    sounds.onTalk = (voice, seconds) => {
+      if (voice === 'heromountainking') this.portrait3d.talk(seconds);
+    };
 
     store.subscribe(() => this.render());
     store.onEvent((e) => this.message(e));
@@ -180,15 +266,141 @@ export class Hud {
     this.sel = sel;
     this.learning = false;
     this.building = false;
-    if (sel.kind === 'base') this.world.select(sel.id);
+    this.world.select(sel.kind === 'base' ? sel.id : null);
+    this.world.selectUnits(sel.kind === 'task' ? [sel.id] : sel.kind === 'group' ? sel.ids : [], sel.kind === 'hero' || (sel.kind === 'group' && sel.hero));
     this.render();
+  }
+
+  /** Несколько юнитов (и, может быть, герой): один становится обычным выбором, больше группой. */
+  private pickUnits(ids: string[], hero: boolean) {
+    if (ids.length + (hero ? 1 : 0) === 1) this.pick(hero ? { kind: 'hero' } : { kind: 'task', id: ids[0] });
+    else if (ids.length || hero) this.pick({ kind: 'group', ids, hero });
+  }
+
+  /** Камера к выбору: база, герой или первый юнит группы. */
+  private focusSelection(sel: Selection) {
+    if (sel.kind === 'base') this.world.focusBase(sel.id);
+    else if (sel.kind === 'hero' || (sel.kind === 'group' && sel.hero && !sel.ids.length)) this.world.focusHero();
+    else this.world.focusUnit(sel.kind === 'task' ? sel.id : sel.ids[0]);
+  }
+
+  /** Группа N: Ctrl (или Shift) с цифрой запоминает выбор, цифра вызывает, двойное нажатие ведёт камеру. */
+  private groupKey(n: number, save: boolean) {
+    if (save) {
+      this.groups.set(n, this.sel);
+      this.store.say(`Группа ${n} запомнена.`);
+      return;
+    }
+    const g = this.groups.get(n);
+    if (!g) return;
+    // Сделанные и отменённые задачи из группы выпадают.
+    const alive = (id: string) => ['hired', 'active'].includes(this.store.task(id)?.status ?? '');
+    let sel: Selection = g;
+    if (g.kind === 'task' && !alive(g.id)) return;
+    if (g.kind === 'group') {
+      const ids = g.ids.filter(alive);
+      if (!ids.length && !g.hero) return;
+      sel = ids.length + (g.hero ? 1 : 0) === 1 ? (g.hero ? { kind: 'hero' } : { kind: 'task', id: ids[0] }) : { ...g, ids };
+    }
+    if (g.kind === 'base' && !this.store.project(g.id)) return;
+    const now = performance.now();
+    const double = this.lastGroupKey.n === n && now - this.lastGroupKey.at < 400;
+    this.lastGroupKey = { n, at: now };
+    if (double) this.focusSelection(sel);
+    else this.pick(sel);
+  }
+
+  /** Простаивающие базы: в игре, не захвачены, а в казарме и в бою никого. */
+  private idleBases(): Project[] {
+    const s = this.store.state;
+    const busy = new Set(s.tasks.filter((t) => (t.status === 'hired' || t.status === 'active') && t.projectId).map((t) => t.projectId));
+    return activeBases(s).filter((p) => !p.capturedAt && !busy.has(p.id));
+  }
+
+  private nextIdleBase() {
+    const idle = this.idleBases();
+    if (!idle.length) return;
+    const p = idle[this.idleIndex++ % idle.length];
+    this.select({ kind: 'base', id: p.id });
+    this.world.focusBase(p.id);
+  }
+
+  /** Кнопки героев слева сверху: F1 герой на дежурстве, F2 и F3 отдыхающие на алтаре. */
+  private renderHeroButtons() {
+    const s = this.store.state;
+    const heroes = [s.hero, ...(s.reserve ?? [])];
+    setHtml(
+      $('hero-buttons'),
+      heroes
+        .map((h, i) => {
+          const kind = HERO_KINDS[h.kind ?? 'mountainking'];
+          const where = i ? `на алтаре, смена: ${dutyOf(s, h.slot ?? 0)}` : `на базе «${this.store.project(h.baseId)?.name ?? ''}»`;
+          return (
+            `<button class="hero-btn${h.fallenAt ? ' fallen' : ''}${i ? ' resting' : ''}${i === 0 && (this.sel.kind === 'hero' || (this.sel.kind === 'group' && this.sel.hero)) ? ' on' : ''}" data-action="hero-btn" data-id="${i}" ` +
+            `title="${esc(`${h.name}, уровень ${h.level}, ${h.fallenAt ? 'пал' : where} (F${i + 1})`)}">` +
+            `<span class="face"${h.kind && h.kind !== 'mountainking' ? ` style="color:${kind.tint}"` : ''}>${h.fallenAt ? '☠' : kind.short}</span><b>${h.level}</b>` +
+            `<i class="hp" style="width:${h.fallenAt ? 0 : 100}%"></i><i class="mp" style="width:${((h.mana / Math.max(1, h.maxMana)) * 100).toFixed(0)}%"></i></button>`
+          );
+        })
+        .join(''),
+    );
+    const idle = this.idleBases();
+    const btn = $<HTMLButtonElement>('idle-bases');
+    btn.hidden = !idle.length;
+    const label = `<span>⛏</span><b>${idle.length}</b>`;
+    if (btn.dataset.html !== label) {
+      btn.innerHTML = label;
+      btn.dataset.html = label;
+    }
+    btn.title = `Простаивающие базы (F8): ${idle.map((p) => p.name).join(', ')}. В казарме и в бою никого.`;
+  }
+
+  private heroButton(i: number) {
+    const s = this.store.state;
+    const now = performance.now();
+    const double = this.heroTap.i === i && now - this.heroTap.at < 400;
+    this.heroTap = { i, at: now };
+    if (i === 0) {
+      if (double) this.world.focusHero();
+      else this.pick({ kind: 'hero' });
+      return;
+    }
+    const r = s.reserve?.[i - 1];
+    if (!r) return;
+    // Отдыхающий герой стоит на алтаре у главной ратуши.
+    this.select({ kind: 'base', id: MAIN_HALL_ID });
+    this.world.focusBase(MAIN_HALL_ID);
+    this.store.say(`${r.name} отдыхает на алтаре. Его смена: ${dutyOf(s, r.slot ?? 0)}.`);
+  }
+
+  /** «Задание выполнено» посреди экрана со звуком WC3, когда закрыта цель недели. */
+  private checkQuestDone() {
+    const s = this.store.state;
+    const start = weekStart(s);
+    const goals = s.week?.start === start ? s.week.goals : [];
+    const done = goals.filter((g) => g.done).length;
+    const prev = this.weekDone;
+    this.weekDone = { start, done };
+    if (!prev || prev.start !== start || done <= prev.done) return;
+    const goal = goals.filter((g) => g.done).at(-1);
+    const box = $('quest-done');
+    box.innerHTML = `<b>Задание выполнено</b><span>${esc(goal?.text ?? '')}</span>`;
+    box.classList.remove('show');
+    void box.offsetWidth;
+    box.classList.add('show');
+    void sounds.play('quest');
+    window.clearTimeout(this.questTimer);
+    this.questTimer = window.setTimeout(() => box.classList.remove('show'), 4500);
   }
 
   /** Выбор кликом игрока: юнит или герой откликается голосом, свиток без юнита молчит. */
   private pick(sel: Selection) {
     this.select(sel);
-    if (sel.kind === 'hero') sounds.select('heromountainking', 'hero');
-    else if (sel.kind === 'task') {
+    if (sel.kind === 'hero' || (sel.kind === 'group' && sel.hero)) sounds.select('heromountainking', 'hero');
+    else if (sel.kind === 'group') {
+      const t = this.store.task(sel.ids[0]);
+      if (t?.level) sounds.select(UNIT_VOICE[t.level], t.id);
+    } else if (sel.kind === 'task') {
       const t = this.store.task(sel.id);
       if (t?.level && (t.status === 'hired' || t.status === 'active')) sounds.select(UNIT_VOICE[t.level], t.id);
     }
@@ -198,8 +410,8 @@ export class Hud {
   private contextBase(): Project | undefined {
     const s = this.sel;
     if (s.kind === 'base') return this.store.project(s.id);
-    if (s.kind === 'task') {
-      const t = this.store.task(s.id);
+    if (s.kind === 'task' || (s.kind === 'group' && s.ids.length)) {
+      const t = this.store.task(s.kind === 'task' ? s.id : s.ids[0]);
       if (t?.projectId) return this.store.project(t.projectId);
     }
     return this.store.project(this.store.state.hero.baseId);
@@ -248,9 +460,14 @@ export class Hud {
       const a = el.dataset.action!;
       const id = el.dataset.id ?? '';
       if (a === 'open-settings') openSettings(this.store, this.sync);
+      else if (a === 'open-quests') openQuests(this.store);
+      else if (a === 'idle-base') this.nextIdleBase();
+      else if (a === 'hero-btn') this.heroButton(Number(id));
       else if (a === 'toggle-side') $('side').classList.toggle('hidden');
       else if (a === 'select-task') this.pick({ kind: 'task', id });
       else if (a === 'select-hero') this.pick({ kind: 'hero' });
+      else if (a === 'slot') this.slotItems[Number(id)]?.run();
+      else if (a === 'map-btn' && this.mapButtons[Number(id)]?.enabled !== false) this.mapButtons[Number(id)]?.run();
       else if (a === 'confirm') this.store.confirmWorking();
       else if (a === 'cmd') {
         if (this.longPress) this.longPress = false;
@@ -315,6 +532,16 @@ export class Hud {
       this.tooltip(el ? this.commands[Number(el.dataset.id)] : undefined);
     });
     $('command-card').addEventListener('mouseleave', () => this.tooltip(undefined));
+    for (const [box, sel, list] of [
+      ['inventory', '.inv-slot[data-id]', () => this.slotItems],
+      ['minimap-buttons', '.map-btn[data-id]', () => this.mapButtons],
+    ] as const) {
+      $(box).addEventListener('mouseover', (e) => {
+        const el = (e.target as HTMLElement).closest<HTMLElement>(sel);
+        this.tooltip(el ? list()[Number(el.dataset.id)] : undefined);
+      });
+      $(box).addEventListener('mouseleave', () => this.tooltip(undefined));
+    }
     // На телефоне подсказка по долгому нажатию, и тогда команда не срабатывает.
     let press: number | undefined;
     $('command-card').addEventListener('pointerdown', (e) => {
@@ -335,10 +562,35 @@ export class Hud {
         if (e.key === 'Escape') (e.target as HTMLElement).blur();
         return;
       }
-      if (document.getElementById('modal-root')!.childElementCount) return;
+      const modal = document.getElementById('modal-root')!;
+      // F9 открывает и закрывает журнал заданий, как в WC3.
       if (e.key === 'F9') {
         e.preventDefault();
+        if (modal.querySelector('.quests')) modal.innerHTML = '';
+        else if (!modal.childElementCount) openQuests(this.store);
+        return;
+      }
+      if (modal.childElementCount) return;
+      // Свитки: клавиша Ё (слева от единицы), где бы ни стояла раскладка.
+      if (e.code === 'Backquote') {
+        e.preventDefault();
         $('side').classList.toggle('hidden');
+        return;
+      }
+      if (e.key === 'F8') {
+        e.preventDefault();
+        this.nextIdleBase();
+        return;
+      }
+      if (e.key === 'F2' || e.key === 'F3') {
+        e.preventDefault();
+        this.heroButton(Number(e.key[1]) - 1);
+        return;
+      }
+      const digit = /^Digit([1-9])$/.exec(e.code);
+      if (digit && (e.ctrlKey || e.metaKey || e.shiftKey)) {
+        e.preventDefault();
+        this.groupKey(Number(digit[1]), true);
         return;
       }
       if (e.key === '/') {
@@ -352,20 +604,51 @@ export class Hud {
         openSettings(this.store, this.sync);
         return;
       }
+      // Пробел и F1, как в WC3: камера к герою, F1 заодно выбирает его.
+      if (e.key === ' ' || e.key === 'F1') {
+        e.preventDefault();
+        if (e.key === 'F1') this.pick({ kind: 'hero' });
+        this.world.focusHero();
+        return;
+      }
       const key = e.key.length === 1 ? e.key.toUpperCase() : e.key;
       const cmd = this.commands.find((c) => c.hotkey === key || (key === 'Escape' && c.hotkey === 'Esc'));
       if (cmd && cmd.enabled !== false) {
         e.preventDefault();
         cmd.run();
+      } else if (digit && !cmd && !e.altKey) {
+        // Цифра без команды с такой клавишей вызывает группу.
+        e.preventDefault();
+        this.groupKey(Number(digit[1]), false);
       }
     });
 
-    $('minimap').addEventListener('pointerdown', (e) => {
-      const c = e.currentTarget as HTMLCanvasElement;
-      const r = c.getBoundingClientRect();
+    // Двойной щелчок (или двойное касание) по портрету ведёт камеру к герою.
+    let portraitTap = 0;
+    $('portrait').addEventListener('pointerup', () => {
+      const now = performance.now();
+      if (now - portraitTap < 350) {
+        this.world.focusHero();
+        portraitTap = 0;
+      } else portraitTap = now;
+    });
+
+    // Мини-карта, как в WC3: щелчок ставит камеру в точку, протяжка ведёт её следом за мышью.
+    const mini = $<HTMLCanvasElement>('minimap');
+    const jump = (e: PointerEvent) => {
+      const r = mini.getBoundingClientRect();
       const x = ((e.clientX - r.left) / r.width) * 2 * MAP_HALF - MAP_HALF;
       const z = MAP_HALF - ((e.clientY - r.top) / r.height) * 2 * MAP_HALF;
       this.world.lookAt(x, z);
+      this.drawMinimap();
+    };
+    mini.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0) return;
+      mini.setPointerCapture(e.pointerId);
+      jump(e);
+    });
+    mini.addEventListener('pointermove', (e) => {
+      if (mini.hasPointerCapture(e.pointerId)) jump(e);
     });
   }
 
@@ -488,8 +771,72 @@ export class Hud {
     this.renderPortrait();
     this.renderInfo();
     this.renderCard();
+    this.renderConsoleSlots();
+    this.renderHeroButtons();
     this.renderGuard();
+    this.checkQuestDone();
     this.autoDialogs();
+  }
+
+  /**
+   * Пустые клетки консоли WC3 получают дело. Инвентарь героя: то, что он сейчас несёт
+   * (лягушка дня, план, цели недели, действующая способность) и добытые трофеи.
+   * Кнопки у мини-карты ведут камеру к герою, ратуше, бою и Легиону, последняя
+   * переключает мини-карту между рельефом и простой схемой.
+   */
+  private renderConsoleSlots() {
+    const s = this.store.state;
+    const now = Date.now();
+    const items: Command[] = [];
+    const frog = s.hero.frog?.day === gameDay(s) ? this.store.task(s.hero.frog.taskId) : undefined;
+    if (frog && frog.status !== 'done' && frog.status !== 'cancelled')
+      items.push({ icon: '🐸', hotkey: '', title: 'Лягушка дня', text: `«${frog.title}». Сделай её первой из серьёзных задач.`, run: () => this.pick({ kind: 'task', id: frog.id }) });
+    const plan = s.dayPlan?.day === gameDay(s) ? s.dayPlan.taskIds : [];
+    if (plan.length) {
+      const done = plan.filter((id) => this.store.task(id)?.status === 'done').length;
+      items.push({ icon: '📜', hotkey: `${done}/${plan.length}`, title: 'План на день', text: `Сделано ${done} из ${plan.length}. Открыть планирование.`, run: () => openPlanning(this.store) });
+    }
+    const goals = s.week?.start === weekStart(s) ? s.week.goals : [];
+    if (goals.length) {
+      const done = goals.filter((g) => g.done).length;
+      items.push({ icon: '🎯', hotkey: `${done}/${goals.length}`, title: 'Цели недели', text: goals.map((g) => `${g.done ? '✓' : '·'} ${g.text}`).join('\n'), run: () => openWeek(this.store) });
+    }
+    if (avatarActive(s, s.hero.baseId, now))
+      items.push({ icon: '⚡', hotkey: `${Math.ceil((s.hero.avatar!.until - now) / 60_000)}м`, title: 'Аватар', text: 'Глубокий фокус: добыча на базе героя удвоена.', run: () => this.pick({ kind: 'hero' }) });
+    else if (clapActive(s, now))
+      items.push({ icon: '🔨', hotkey: `×${s.hero.clap!.count}`, title: 'Удар грома', text: `Серия мелочей, ещё ${Math.ceil((s.hero.clap!.until - now) / 60_000)} мин.`, run: () => this.pick({ kind: 'hero' }) });
+    const wins = (s.hallOfFame?.length ?? 0) + s.projects.filter((p) => p.id !== MAIN_HALL_ID && p.fortressMaxHp > 0 && p.fortressHp === 0).length;
+    if (wins) items.push({ icon: '🏆', hotkey: String(wins), title: 'Трофеи', text: `Выигранных миссий: ${wins}. Открыть зал славы.`, run: () => openHall(this.store) });
+    if (s.dreadlordsSlain) items.push({ icon: '💀', hotkey: String(s.dreadlordsSlain), title: 'Черепа повелителей ужаса', text: `Повержено повелителей ужаса: ${s.dreadlordsSlain}.`, run: () => openHall(this.store) });
+    this.slotItems = items.slice(0, 6);
+    let html = '';
+    for (let i = 0; i < 6; i++) {
+      const c = this.slotItems[i];
+      html += c ? `<button class="inv-slot" data-action="slot" data-id="${i}" aria-label="${esc(c.title)}">${c.icon}${c.hotkey ? `<b>${esc(c.hotkey)}</b>` : ''}</button>` : '<div class="inv-slot empty"></div>';
+    }
+    setHtml($('inventory'), html);
+
+    const demons = new Map<string, number>();
+    for (const t of allDemons(s)) demons.set(demonBaseId(t), (demons.get(demonBaseId(t)) ?? 0) + 1);
+    const demonBase = [...demons.entries()].sort((a, b) => b[1] - a[1])[0];
+    const fight = s.projects.find((p) => activeTaskOf(s, p.id));
+    this.mapButtons = [
+      { icon: '♔', hotkey: 'F1', title: 'Герой', text: 'Камера к герою (пробел или F1).', run: () => this.world.focusHero() },
+      { icon: '⌂', hotkey: '', title: 'Главная ратуша', text: 'Камера к главной ратуше.', run: () => this.world.focusBase(MAIN_HALL_ID) },
+      { icon: '⚔', hotkey: '', title: 'Бой', text: fight ? `Камера к базе «${fight.name}», где идёт задача.` : 'Сейчас ни одна задача не в работе.', enabled: !!fight, run: () => fight && this.world.focusBase(fight.id) },
+      { icon: '☠', hotkey: '', title: 'Легион', text: demonBase ? `Камера к базе, где больше всего демонов (${demonBase[1]}).` : 'Демонов Легиона на карте нет.', enabled: !!demonBase, run: () => demonBase && this.world.focusBase(demonBase[0]) },
+      { icon: '◐', hotkey: '', title: this.plainMap ? 'Мини-карта: рельеф' : 'Мини-карта: схема', text: this.plainMap ? 'Показать на мини-карте землю и лес.' : 'Показать только базы, героя и демонов, без рельефа.', run: () => ((this.plainMap = !this.plainMap), this.render()) },
+    ];
+    setHtml(
+      $('minimap-buttons'),
+      this.mapButtons
+        .map((c, i) => {
+          // Иконки кнопок мини-карты людей; без текстур остаются значки.
+          const art = ['ping', 'ally', 'formation', 'creep', this.plainMap ? 'terrain-off' : 'terrain'][i];
+          return `<button class="map-btn mm-${art}${i === 4 ? ' round' : ''}${c.enabled === false ? ' off' : ''}" data-action="map-btn" data-id="${i}" aria-label="${esc(c.title)}"><span>${c.icon}</span></button>`;
+        })
+        .join(''),
+    );
   }
 
   /** Утром само открывается планирование, а перед отбоем итоги дня. */
@@ -555,8 +902,32 @@ export class Hud {
         this.upkeepBadge(up.label, upClass) +
         `<span class="res sync" title="${esc(this.sync.error || syncLabel)}"><span class="long">${syncLabel}</span><span class="short">${syncShort}</span></span>`,
     );
+    // На консоли WC3 окошка для сохранения нет: оно точкой на кнопке «Меню» и в её подсказке.
+    const menu = $('menu-btn');
+    menu.dataset.sync = this.sync.status;
+    menu.title = `Настройки (F10) · ${this.sync.error || syncLabel}`;
     const now = new Date();
     setHtml($('clock'), `<b>${now.toTimeString().slice(0, 5)}</b><span class="shift"> · ${SHIFT_NAMES[currentShift(s, now)]}</span>`);
+    this.renderDial(now, SHIFT_NAMES[currentShift(s, now)]);
+  }
+
+  /**
+   * Солнечные часы в центре верхней полосы, как в WC3: колесо с солнцем и луной
+   * поворачивается по времени суток (солнце наверху в полдень), небо в окошке
+   * светлеет к утру и темнеет к ночи.
+   */
+  private renderDial(now: Date, shift: string) {
+    const dial = $('daydial');
+    const h = now.getHours() + now.getMinutes() / 60;
+    const turn = `rotate(${(((h - 12) / 24) * 360).toFixed(1)}deg)`;
+    const wheel = dial.firstElementChild as HTMLElement;
+    if (wheel.style.transform !== turn) wheel.style.transform = turn;
+    // С текстурой индикатора людей полоса «солнце, луна, солнце» едет за окошком: в полдень
+    // в центре солнце, в полночь луна.
+    dial.style.setProperty('--dial-u', (((h - 12 + 24) % 24) / 24).toFixed(4));
+    dial.style.setProperty('--sky', skyAt(h));
+    const title = `${shift} · ${now.toTimeString().slice(0, 5)}`;
+    if (dial.title !== title) dial.title = title;
   }
 
   private taskRow(t: Task, withProject = false): string {
@@ -682,8 +1053,9 @@ export class Hud {
   private renderPortrait() {
     const h = this.store.state.hero;
     const points = skillPoints(h);
+    this.portrait3d.setVisible(isMountainKing(h) && !h.fallenAt);
     setHtml(
-      $('portrait'),
+      $('portrait-face'),
       `<span data-action="select-hero" class="${h.fallenAt ? 'fallen' : ''}" ${isMountainKing(h) ? '' : ` style="color:${HERO_KINDS[h.kind!].tint}"`} title="${esc(h.name)}${h.fallenAt ? ': пал' : ''}">${h.fallenAt ? '☠' : HERO_KINDS[h.kind ?? 'mountainking'].short}</span>` +
         (points ? `<b class="skill-badge" data-action="learn" title="Очков навыка: ${points}">+</b>` : ''),
     );
@@ -700,8 +1072,12 @@ export class Hud {
     let html = '';
     if (sel.kind === 'hero') {
       const h = s.hero;
+      const [str, agi, int, ds, da, di] = HERO_STATS[h.kind ?? 'mountainking'];
+      const at = (base: number, d: number) => base + Math.floor(d * (h.level - 1));
       html =
         `<h3>${esc(h.name)} · уровень ${h.level}</h3>` +
+        `<div class="row stats">${stat('attack-hero', h.level * 2 + 20, 'Атака героя')}${stat('armor-hero', smithLevel(s, 'armor') + 3, 'Броня героя')}` +
+        `${stat('str', at(str, ds), 'Сила')}${stat('agi', at(agi, da), 'Ловкость')}${stat('int', at(int, di), 'Разум')}</div>` +
         bar('xp', h.xp, xpForLevel(h.level), `Опыт ${h.xp} / ${xpForLevel(h.level)}`) +
         bar('mana', h.mana, h.maxMana, `Мана ${Math.floor(h.mana)} / ${h.maxMana}`) +
         (h.fallenAt
@@ -713,11 +1089,32 @@ export class Hud {
     } else if (sel.kind === 'base') {
       const p = this.store.project(sel.id);
       if (p) html = this.baseInfo(p);
+    } else if (sel.kind === 'group') {
+      html = this.groupInfo(sel.ids, sel.hero);
     } else {
       const t = this.store.task(sel.id);
       if (t) html = this.taskInfo(t);
     }
     setHtml($('info'), `<div class="info">${html}</div>`);
+  }
+
+  /**
+   * Несколько выбранных рамкой, как в WC3: сетка портретов с полосками здоровья.
+   * Щелчок по портрету оставляет выбранным только этого юнита.
+   */
+  private groupInfo(ids: string[], hero: boolean): string {
+    const s = this.store.state;
+    const cells: string[] = [];
+    if (hero) {
+      const h = s.hero;
+      cells.push(groupCell('data-action="select-hero" data-hero', HERO_KINDS[h.kind ?? 'mountainking'].short, h.name, h.mana / h.maxMana));
+    }
+    for (const id of ids) {
+      const t = this.store.task(id);
+      if (!t?.level) continue;
+      cells.push(groupCell(`data-action="select-task" data-id="${t.id}"`, UNIT_SHORT[t.level], `${UNITS[t.level].name}: ${t.title}`, unitHealth(t)));
+    }
+    return `<h3>Выбрано: ${cells.length}</h3><div class="group-grid">${cells.join('')}</div>`;
   }
 
   /** Остальные герои на алтаре: уровень, мана и смена. */
@@ -822,7 +1219,9 @@ export class Hud {
       const heroBase = this.store.project(s.hero.baseId);
       const running = !!heroBase && !!activeTaskOf(s, heroBase.id) && !s.onBreak && !idleGuardTripped(s);
       html +=
+        `<div class="queue"><span class="queue-slot" title="${esc(t?.name ?? '')}">${t?.icon ?? ''}</span>` +
         bar('build', c.totalMs - c.leftMs, c.totalMs, `${t?.name ?? ''}: ${doneMin} / ${totalMin} мин`) +
+        `</div>` +
         `<div class="row ${running ? 'working' : 'stopped'}">${running ? 'Рабочие строят, пока идёт таймер' : 'Стройка стоит: запусти задачу, и рабочие возьмутся за дело'}</div>`;
     }
     return html;
@@ -833,6 +1232,18 @@ export class Hud {
     const status = { inbox: 'Свиток во входящих', hired: 'В казарме', active: 'В бою', done: 'Выполнена', cancelled: 'Отменена' }[t.status];
     const unit = t.level ? `${UNITS[t.level].name} · ${UNITS[t.level].hint} · ${reward(this.store.state, UNITS[t.level].xp, 'xp')} опыта` : 'Уровень не выбран';
     let html = `<h3>${esc(t.title)}</h3><div class="row"><b>${status}</b> · ${unit}</div>`;
+    if (isDemon(t)) {
+      const r = demonRank(t);
+      html += `<div class="row stats">${stat('attack-chaos', r, `Атака: ${ATTACK_NAMES.chaos}, урон ${r}`)}${stat('armor-fortified', r, `Броня: ${ARMOR_NAMES.fortified}`)}</div>`;
+    } else if (t.level && (t.status === 'hired' || t.status === 'active')) {
+      const c = UNIT_COMBAT[t.level];
+      const armor = smithLevel(s, 'armor');
+      const weapons = smithLevel(s, 'weapons');
+      html +=
+        `<div class="row stats">${stat('attack-' + c.attack, t.level + weapons, `Атака: ${ATTACK_NAMES[c.attack]}, урон по крепости ${t.level}${weapons ? ` +${weapons} от кузницы` : ''}`)}` +
+        `${stat('armor-' + c.armor, armor, `Броня: ${ARMOR_NAMES[c.armor]}${armor ? `, +${armor} от кузницы` : ''}`)}` +
+        `${stat('supply', 1, 'Еда: одна задача в работе')}</div>`;
+    }
     if (t.projectId) html += `<div class="row">База: <b>${esc(this.store.project(t.projectId)?.name ?? '')}</b></div>`;
     const squad = squadOf(s, t.id);
     if (squad.length)
@@ -1351,7 +1762,11 @@ export class Hud {
   private renderCard() {
     const sel = this.sel;
     let cmds: Command[] = [];
-    if (sel.kind === 'task') {
+    if (sel.kind === 'group') {
+      // У отряда из разных задач общих приказов нет: только снять выделение.
+      cmds = Array.from({ length: 11 }, () => ({ icon: '', hotkey: '', title: '', text: '', enabled: false, run: () => {} }));
+      cmds.push({ icon: '↩', hotkey: 'Esc', title: 'Назад', text: 'Снять выделение и вернуться к базе.', run: () => this.select({ kind: 'base', id: this.contextBase()?.id ?? MAIN_HALL_ID }) });
+    } else if (sel.kind === 'task') {
       const t = this.store.task(sel.id);
       if (t) cmds = this.taskCommands(t);
     } else if (sel.kind === 'hero') {
@@ -1399,9 +1814,9 @@ export class Hud {
       return;
     }
     el.innerHTML =
-      `<div class="title">${esc(c.title)} (<span class="hotkey">${c.hotkey}</span>)</div>` +
-      (c.cost ? `<div class="cost">${esc(c.cost)}</div>` : '') +
-      `<div>${esc(c.text)}</div>`;
+      `<div class="title">${esc(c.title)}${c.hotkey ? ` (<span class="hotkey">${c.hotkey}</span>)` : ''}</div>` +
+      (c.cost ? `<div class="cost">${costHtml(c.cost)}</div>` : '') +
+      `<div>${esc(c.text).replace(/\n/g, '<br>')}</div>`;
     el.style.display = 'block';
   }
 
@@ -1424,25 +1839,43 @@ export class Hud {
     const c = $<HTMLCanvasElement>('minimap');
     // Вкладка в фоне или мини-карта спрятана (телефон стоя): рисовать некому.
     if (document.hidden || !c.offsetParent) return;
+    // Холст в настоящих пикселях экрана, иначе значки и рамка мыльные.
+    const want = Math.max(180, Math.min(512, Math.round(c.clientWidth * Math.min(2, window.devicePixelRatio || 1))));
+    if (c.width !== want) c.width = c.height = want;
     const ctx = c.getContext('2d')!;
     const W = c.width;
+    const u = W / 180;
     const k = W / (MAP_HALF * 2);
     const toX = (x: number) => (x + MAP_HALF) * k;
     const toY = (z: number) => (MAP_HALF - z) * k;
-    ctx.fillStyle = '#3c5a24';
-    ctx.fillRect(0, 0, W, W);
+    const art = this.plainMap ? null : this.world.minimapArt();
+    if (art) {
+      ctx.imageSmoothingEnabled = true;
+      ctx.drawImage(art, 0, 0, W, W);
+    } else {
+      ctx.fillStyle = '#3c5a24';
+      ctx.fillRect(0, 0, W, W);
+    }
+    ctx.save();
+    ctx.scale(u, u);
+    const toXu = (x: number) => toX(x) / u;
+    const toYu = (z: number) => toY(z) / u;
     const s = this.store.state;
     for (const p of s.projects) {
-      const x = toX(p.slot.x);
-      const y = toY(p.slot.z);
+      const x = toXu(p.slot.x);
+      const y = toYu(p.slot.z);
       if (p.fortressMaxHp > 0 && p.fortressHp > 0) {
         const len = Math.hypot(p.slot.x, p.slot.z) || 1;
         ctx.fillStyle = '#d43a2a';
-        ctx.fillRect(toX(p.slot.x + (p.slot.x / len) * 48) - 2, toY(p.slot.z + (p.slot.z / len) * 48) - 2, 4, 4);
+        ctx.fillRect(toXu(p.slot.x + (p.slot.x / len) * 48) - 2, toYu(p.slot.z + (p.slot.z / len) * 48) - 2, 4, 4);
       }
       ctx.fillStyle = BANNER_COLORS[p.kind];
       const size = p.id === 'main' ? 9 : 6;
       ctx.fillRect(x - size / 2, y - size / 2, size, size);
+      // Тёмная кайма, чтобы значок читался на траве и на земле.
+      ctx.strokeStyle = 'rgba(0,0,0,0.75)';
+      ctx.lineWidth = 0.8;
+      ctx.strokeRect(x - size / 2, y - size / 2, size, size);
       if (activeTaskOf(s, p.id)) {
         ctx.strokeStyle = '#7dff7d';
         ctx.strokeRect(x - size / 2 - 2, y - size / 2 - 2, size + 4, size + 4);
@@ -1456,24 +1889,46 @@ export class Hud {
       perBase.set(id, i + 1);
       const p = this.store.project(id);
       if (!p || i >= 6) continue;
+      ctx.fillStyle = '#000';
+      ctx.fillRect(toXu(p.slot.x) - 7.5 + (i % 3) * 5, toYu(p.slot.z) + 6.5 + Math.floor(i / 3) * 4, 4, 4);
       ctx.fillStyle = '#5dff3a';
-      ctx.fillRect(toX(p.slot.x) - 7 + (i % 3) * 5, toY(p.slot.z) + 7 + Math.floor(i / 3) * 4, 3, 3);
+      ctx.fillRect(toXu(p.slot.x) - 7 + (i % 3) * 5, toYu(p.slot.z) + 7 + Math.floor(i / 3) * 4, 3, 3);
     }
     const hero = this.store.project(s.hero.baseId);
     if (hero) {
       ctx.fillStyle = '#ffd34d';
       ctx.beginPath();
-      ctx.arc(toX(hero.slot.x) + 6, toY(hero.slot.z) + 6, 3, 0, Math.PI * 2);
+      ctx.arc(toXu(hero.slot.x) + 6, toYu(hero.slot.z) + 6, 3, 0, Math.PI * 2);
       ctx.fill();
     }
-    // Рамка видимой области камеры.
-    const t = this.world.cameraTarget();
-    const r = this.world.camera.radius;
-    const halfW = r * 0.75;
-    const halfH = r * 0.45;
+    ctx.restore();
+    // Рамка камеры: то, что видно на экране, опущенное на землю, поэтому трапеция.
+    const f = this.world.cameraFootprint();
     ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 1;
-    ctx.strokeRect(toX(t.x - halfW), toY(t.z + halfH), halfW * 2 * k, halfH * 2 * k);
+    ctx.lineWidth = Math.max(1, u * 0.9);
+    ctx.beginPath();
+    f.forEach((p, i) => (i ? ctx.lineTo(toX(p.x), toY(p.z)) : ctx.moveTo(toX(p.x), toY(p.z))));
+    ctx.closePath();
+    ctx.stroke();
   }
 }
 
+/** Цвет неба в окошке часов по часу суток: ночь, рассвет, день, закат. */
+const SKY: [number, [number, number, number]][] = [
+  [0, [10, 16, 40]],
+  [4.5, [12, 20, 50]],
+  [6.5, [214, 128, 70]],
+  [8.5, [78, 142, 214]],
+  [17, [78, 142, 214]],
+  [19.5, [206, 96, 56]],
+  [21.5, [14, 22, 56]],
+  [24, [10, 16, 40]],
+];
+
+function skyAt(h: number): string {
+  const i = SKY.findIndex(([t]) => t > h);
+  const [t0, a] = SKY[i - 1];
+  const [t1, b] = SKY[i];
+  const k = (h - t0) / (t1 - t0);
+  return `rgb(${a.map((v, j) => Math.round(v + (b[j] - v) * k)).join(',')})`;
+}

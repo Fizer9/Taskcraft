@@ -26,6 +26,24 @@ SFX = {
     'rooster': 'sound/time/daybreakrooster',
     'wolf': 'sound/time/duskwolf',
     'victory': 'sound/music/mp3music/humanvictory',
+    'hover': 'sound/interface/mouseover1',
+    'hint': 'sound/interface/hint',
+    'goldlow': 'sound/interface/goldminerunningout1',
+    'bigclick': 'sound/interface/bigbuttonclick',
+    'bling': 'sound/interface/waypointbling',
+    'item': 'sound/interface/herodropitem1',
+    'collapse': 'sound/buildings/death/buildingdeathlargehuman',
+    'collapse-small': 'sound/buildings/death/buildingdeathsmallhuman',
+    'place': 'sound/buildings/shared/buildingplacement',
+    'hammer': 'sound/buildings/shared/constructionloop1',
+}
+# Фон окружения: день и ночь Лордерона летом, дождь, мельница и ручей у баз.
+AMBIENT = {
+    'amb-day': 'sound/ambient/lordaeronsummer/lordaeronsummerday',
+    'amb-night': 'sound/ambient/lordaeronsummer/lordaeronsummernight',
+    'amb-rain': 'sound/ambient/rainambience',
+    'amb-windmill': 'sound/ambient/doodadeffects/lordaeronsummerwindmillloop1',
+    'amb-stream': 'sound/ambient/doodadeffects/waterstreamloop/waterstreamloop1',
 }
 MUSIC = {
     'human1': 'sound/music/mp3music/human1',
@@ -55,7 +73,7 @@ def main():
     ap.add_argument('--lang', default='ruru', help='папка языка голосов: ruru, enus и т.д.')
     args = ap.parse_args()
     missing = []
-    for table, bitrate, mono in ((SFX, '96k', True), (MUSIC, '112k', False)):
+    for table, bitrate, mono in ((SFX, '96k', True), (MUSIC, '112k', False), (AMBIENT, '48k', True)):
         for name, rel in table.items():
             src = os.path.join(args.root, '_de.w3mod', rel + '.flac')
             if not os.path.exists(src):

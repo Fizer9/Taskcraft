@@ -59,6 +59,13 @@ describe('разрешение 3D', () => {
     assert.equal(p.scale, MAX_SCALE);
   });
 
+  test('на компьютере не мельче пикселя страницы', () => {
+    const h = host();
+    const p = new Pacer(h, false, true, 0.5, 1);
+    run(p, 0, 60_000, 60);
+    assert.deepEqual(h.scales, [0.5, 0.75, 1]);
+  });
+
   test('быстрый телефон разрешение не трогает', () => {
     const h = host();
     run(new Pacer(h, true, true), 0, 30_000, 10);

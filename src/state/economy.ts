@@ -479,3 +479,13 @@ export function levelBySpentTime(spentMs: number): Level {
   if (h <= 10) return 3;
   return 4;
 }
+
+/**
+ * Здоровье юнита задачи для полосок над ним и в консоли (0..1): без срока юнит цел,
+ * со сроком тает по мере приближения дня, неделя и больше в запасе даёт полную полоску.
+ */
+export function unitHealth(t: Pick<Task, 'due'>, today = localDay()): number {
+  if (!t.due) return 1;
+  const left = daysBetween(today, t.due);
+  return Math.max(0.05, Math.min(1, (left + 1) / 8));
+}

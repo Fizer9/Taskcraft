@@ -232,11 +232,70 @@ async function decode(bytes: Uint8Array): Promise<Uint8ClampedArray> {
   return px;
 }
 
+/** Средний цвет каждого типа земли по его сплошным клеткам: им земля рисуется на мини-карте. */
+let colors: [number, number, number][] = [];
+export function groundColors(): [number, number, number][] {
+  return colors;
+}
+
+function averageColor(px: Uint8ClampedArray): [number, number, number] {
+  let r = 0;
+  let g = 0;
+  let b = 0;
+  let n = 0;
+  // Правая половина атласа: сплошные варианты клетки, без прозрачных переходов.
+  for (let y = 0; y < ATLAS_H; y += 4)
+    for (let x = ATLAS_W / 2; x < ATLAS_W; x += 4) {
+      const i = (y * ATLAS_W + x) * 4;
+      r += px[i];
+      g += px[i + 1];
+      b += px[i + 2];
+      n++;
+    }
+  return [r / n, g / n, b / n];
+}
+
+/** Картинка мини-карты: углы сетки цветами своей земли и деревья тёмными пятнами, как в WC3. */
+export function minimapArt(map: TerrainMap, trees: { x: number; z: number }[], size = 256): HTMLCanvasElement | null {
+  if (colors.length !== TILESET.length) return null;
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext('2d')!;
+  const img = ctx.createImageData(size, size);
+  const m = map.n + 1;
+  for (let py = 0; py < size; py++)
+    for (let px = 0; px < size; px++) {
+      // Мини-карта смотрит сверху: верх картинки это север (+z).
+      const fx = (px / size) * map.n;
+      const fz = (1 - py / size) * map.n;
+      const i = Math.min(m - 1, Math.round(fx));
+      const j = Math.min(m - 1, Math.round(fz));
+      const c = colors[map.corners[j * m + i]];
+      // Лёгкая рябь, чтобы земля не была плоской заливкой.
+      const k = 0.92 + noise(px * 0.35, py * 0.35) * 0.16;
+      const o = (py * size + px) * 4;
+      img.data[o] = c[0] * k;
+      img.data[o + 1] = c[1] * k;
+      img.data[o + 2] = c[2] * k;
+      img.data[o + 3] = 255;
+    }
+  ctx.putImageData(img, 0, 0);
+  ctx.fillStyle = '#16290f';
+  const cell = size / (map.half * 2);
+  for (const t of trees) {
+    ctx.beginPath();
+    ctx.arc((t.x + map.half) * cell, (map.half - t.z) * cell, Math.max(1.2, cell * 1.6), 0, Math.PI * 2);
+    ctx.fill();
+  }
+  return canvas;
+}
+
 /** Материал земли из тайлов WC3, или null, если текстур земли нет (без пароля). */
 export async function terrainMaterial(scene: Scene, map: TerrainMap): Promise<StandardMaterial | null> {
   const files = await Promise.all(TILESET.map((t) => loadArt(`terrain/${t}.png`)));
   if (files.some((f) => !f)) return null;
   const layers = await Promise.all(files.map((f) => decode(f!)));
+  colors = layers.map(averageColor);
   const data = new Uint8Array(ATLAS_W * ATLAS_H * 4 * layers.length);
   layers.forEach((l, i) => data.set(l, i * ATLAS_W * ATLAS_H * 4));
 

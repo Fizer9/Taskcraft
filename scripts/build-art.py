@@ -30,6 +30,55 @@ UI_FILES = {
     'ui/widgets/escmenu/human/human-options-button-highlight': ('button-highlight', 512),
     'ui/widgets/escmenu/human/human-options-button-background-disabled': ('button-bg', 256),
     'ui/widgets/console/human/human-activebutton': ('cmd-active', 128),
+    # Солнечные часы: лента «солнце — луна — солнце», она едет за круглым окошком консоли.
+    'ui/console/human/humanuitile-timeindicator': ('timeindicator', 256),
+    # Карточка выбранного: атака, броня, характеристики героя, золото и еда.
+    'ui/widgets/console/human/infocard-attack-melee': ('ic-attack-melee', 64),
+    'ui/widgets/console/human/infocard-attack-piercing': ('ic-attack-piercing', 64),
+    'ui/widgets/console/human/infocard-attack-hero': ('ic-attack-hero', 64),
+    'ui/widgets/console/human/infocard-attack-chaos': ('ic-attack-chaos', 64),
+    'ui/widgets/console/human/infocard-armor-medium': ('ic-armor-medium', 64),
+    'ui/widgets/console/human/infocard-armor-large': ('ic-armor-large', 64),
+    'ui/widgets/console/human/infocard-armor-hero': ('ic-armor-hero', 64),
+    'ui/widgets/console/human/infocard-armor-fortified': ('ic-armor-fortified', 64),
+    'ui/widgets/console/human/infocard-heroattributes-str': ('ic-str', 64),
+    'ui/widgets/console/human/infocard-heroattributes-agi': ('ic-agi', 64),
+    'ui/widgets/console/human/infocard-heroattributes-int': ('ic-int', 64),
+    'ui/widgets/console/human/infocard-gold': ('ic-gold', 64),
+    'ui/widgets/console/human/infocard-supply': ('ic-supply', 64),
+    # Ячейки инвентаря, очередь найма и кнопки у мини-карты.
+    'ui/widgets/console/human/human-inventory-slotfiller': ('slot-filler', 128),
+    'ui/widgets/console/human/human-unitqueue-border': ('queue-border', 256),
+    'ui/widgets/console/human/human-minimap-ping-active': ('mm-ping', 32),
+    'ui/widgets/console/human/human-minimap-terrain-active': ('mm-terrain', 32),
+    'ui/widgets/console/human/human-minimap-terrain-inactive': ('mm-terrain-off', 32),
+    'ui/widgets/console/human/human-minimap-ally-active': ('mm-ally', 32),
+    'ui/widgets/console/human/human-minimap-creep-active': ('mm-creep', 32),
+    'ui/widgets/console/human/human-formation-on': ('mm-formation', 32),
+    # Полоска стройки и найма.
+    'ui/feedback/buildprogressbar/human-buildprogressbar-border': ('progress-border', 256),
+    'ui/feedback/buildprogressbar/human-buildprogressbar-fill': ('progress-fill', 256),
+    # Меню: галочки, ползунки, журнал заданий.
+    'ui/widgets/escmenu/human/checkbox-background': ('checkbox', 64),
+    'ui/widgets/escmenu/human/checkbox-check': ('checkbox-check', 64),
+    'ui/widgets/escmenu/human/checkbox-depressed': ('checkbox-down', 64),
+    'ui/widgets/escmenu/human/slider-knob': ('slider-knob', 64),
+    'ui/widgets/escmenu/human/quest-normal-background': ('quest-normal', 512),
+    'ui/widgets/escmenu/human/quest-completed-background': ('quest-done', 512),
+    'ui/widgets/escmenu/human/quest-failed-background': ('quest-failed', 512),
+    'ui/widgets/escmenu/human/quest-unknown': ('quest-icon', 128),
+    # Монета над ратушей при добыче.
+    'ui/feedback/resources/resourcegold': ('coin', 64),
+}
+
+# Текстуры эффектов сцены: тени, свечение героя, луч нового уровня, капли дождя, вода, скверна.
+FX_FILES = {
+    'textures/shadow': ('shadow', 128),
+    'textures/teamglow0000': ('teamglow', 64),
+    'textures/holyshaft': ('holyshaft', 256),
+    'textures/raintail': ('raintail', 64),
+    'textures/water/war3_waterintense_0000_normal': ('water-normal', 256),
+    'terrainart/blight/lords_blight_diffuse': ('lords_blight', 1024),
 }
 
 # Консоль людей: четыре тайла по ширине образуют центр экрана 4:3, их высота — вся высота экрана.
@@ -40,6 +89,13 @@ REF_CORE = (542, 3698)  # где центр 4:3 лежит на эталонно
 CONSOLE_HEIGHT = 768
 
 
+MISSING = []
+
+
+class Missing(Exception):
+    pass
+
+
 def load(root, rel):
     for mod in ('_de.w3mod', '_hd.w3mod', ''):
         for ext in ('.dds', '.png', '.jpg'):
@@ -48,7 +104,57 @@ def load(root, rel):
                 im = Image.open(p)
                 im.load()
                 return im.convert('RGBA')
-    sys.exit('Нет файла %s (проверь выгрузку CascView)' % rel)
+    MISSING.append(rel)
+    raise Missing(rel)
+
+
+def fit(im, size):
+    if max(im.size) > size:
+        k = size / max(im.size)
+        im = im.resize((max(1, round(im.width * k)), max(1, round(im.height * k))), Image.LANCZOS)
+    return im
+
+
+def fix_normal(im):
+    """Карты нормалей HD хранят только X и Y (синий канал пуст): восстанавливаем Z для Babylon."""
+    a = np.asarray(im).astype(np.float32) / 127.5 - 1
+    z = np.sqrt(np.clip(1 - a[..., 0] ** 2 - a[..., 1] ** 2, 0, 1))
+    out = np.asarray(im).copy()
+    out[..., 2] = ((z + 1) * 127.5).astype(np.uint8)
+    out[..., 3] = 255
+    return Image.fromarray(out, 'RGBA')
+
+
+def glow_alpha(im):
+    """Свечение героя в WC3 хранится яркостью в красном канале при сплошной альфе:
+    делаем белую текстуру с прозрачностью по этой яркости, цвет задаёт материал."""
+    r = np.asarray(im.convert('RGBA'))[..., 0].astype(np.float32)
+    a = np.clip(r / max(1.0, r.max()) * 255, 0, 255).astype(np.uint8)
+    out = np.full(a.shape + (4,), 255, np.uint8)
+    out[..., 3] = a
+    return Image.fromarray(out, 'RGBA')
+
+
+def fx_image(name, im):
+    if name.endswith('normal'):
+        return fix_normal(im)
+    if name == 'teamglow':
+        return glow_alpha(im)
+    return im
+
+
+def build_cursor(root, out):
+    """Курсор WC3: перчатка (первая клетка листа 8×4) обычная, красная над врагом и зелёная над своим."""
+    sheet = load(root, 'ui/cursor/humancursor')
+    cell = sheet.width // 8
+    hand = sheet.crop((0, 0, cell, cell)).resize((40, 40), Image.LANCZOS)
+    save(hand, os.path.join(out, 'ui', 'cursor.png'))
+    a = np.asarray(hand).astype(np.float32)
+    for name, tint in (('cursor-enemy', (1.0, 0.35, 0.3)), ('cursor-own', (0.45, 1.0, 0.4))):
+        b = a.copy()
+        lum = b[..., :3].mean(-1, keepdims=True)
+        b[..., :3] = np.clip(lum * np.array(tint) * 1.25, 0, 255)
+        save(Image.fromarray(b.astype(np.uint8), 'RGBA'), os.path.join(out, 'ui', name + '.png'))
 
 
 def save(im, path):
@@ -138,19 +244,28 @@ def main():
     ap.add_argument('--out', default='assets-src')
     args = ap.parse_args()
 
+    # Чего нет в выгрузке, пропускаем с предупреждением в конце: остальное соберётся.
+    def step(fn):
+        try:
+            fn()
+        except Missing:
+            pass
+
     for name in TERRAIN:
-        im = load(args.root, 'terrainart/lordaeronsummer/%s_diffuse' % name)
-        save(im.resize((1024, 512), Image.LANCZOS), os.path.join(args.out, 'terrain', name + '.png'))
+        step(lambda: save(load(args.root, 'terrainart/lordaeronsummer/%s_diffuse' % name).resize((1024, 512), Image.LANCZOS),
+                          os.path.join(args.out, 'terrain', name + '.png')))
     for rel, (name, size) in UI_FILES.items():
-        im = load(args.root, rel)
-        if max(im.size) > size:
-            k = size / max(im.size)
-            im = im.resize((max(1, round(im.width * k)), max(1, round(im.height * k))), Image.LANCZOS)
-        save(im, os.path.join(args.out, 'ui', name + '.png'))
+        step(lambda: save(fit(load(args.root, rel), size), os.path.join(args.out, 'ui', name + '.png')))
+    for rel, (name, size) in FX_FILES.items():
+        step(lambda: save(fx_image(name, fit(load(args.root, rel), size)),
+                          os.path.join(args.out, 'terrain' if name.endswith('blight') else 'fx', name + '.png')))
     for rel, name in FRAMES.items():
-        save(build_frame(load(args.root, rel)), os.path.join(args.out, 'ui', name + '.png'))
-    build_console(args.root, args.out)
-    build_selection(args.root, args.out)
+        step(lambda: save(build_frame(load(args.root, rel)), os.path.join(args.out, 'ui', name + '.png')))
+    step(lambda: build_console(args.root, args.out))
+    step(lambda: build_selection(args.root, args.out))
+    step(lambda: build_cursor(args.root, args.out))
+    if MISSING:
+        print('Нет в выгрузке (пропущено): ' + ', '.join(MISSING), file=sys.stderr)
 
 
 if __name__ == '__main__':
