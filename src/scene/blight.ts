@@ -1,6 +1,6 @@
 // Скверна на заброшенной базе: зелёное пятно на земле, языки пламени Скверны вокруг
-// и огонь на зданиях, который разгорается с повреждениями. Всё без текстур WC3:
-// земля это полупрозрачный диск, огонь это частицы с нарисованной на лету текстурой.
+// и огонь на зданиях, который разгорается с повреждениями. Когда есть тайлы скверны WC3,
+// землю рисует terrain.ts, а пятно прячется; огонь это частицы с нарисованной на лету текстурой.
 
 import {
   Color4,
@@ -88,6 +88,8 @@ const FEL_FIRES = [new Vector3(-20, 0, 8), new Vector3(19, 0, 13), new Vector3(-
 
 export class BlightFx {
   private ground: Mesh | null = null;
+  /** Земля уже в тайлах скверны WC3 (terrain.ts): зелёное пятно не нужно. */
+  private tiles = false;
   private felFires: ParticleSystem[] = [];
   private fires: ParticleSystem[] = [];
   private state = { blighted: false, burning: 0 };
@@ -96,6 +98,11 @@ export class BlightFx {
     private scene: Scene,
     private parent: TransformNode,
   ) {}
+
+  useTiles(on: boolean) {
+    this.tiles = on;
+    this.ground?.setEnabled(!on);
+  }
 
   /** blighted: по земле ползёт скверна; damage 0–100: насколько горят здания. */
   set(blighted: boolean, damage: number) {
@@ -120,6 +127,7 @@ export class BlightFx {
         m.alpha = 0.5;
         m.specularColor = Color3.Black();
         g.material = m;
+        g.setEnabled(!this.tiles);
         this.ground = g;
         this.felFires = FEL_FIRES.map((p) => fire(this.scene, this.parent, p, 0.9, true));
       }

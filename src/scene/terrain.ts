@@ -23,8 +23,11 @@ import { loadArt } from '../assets/loader';
 /** Клетка WC3 (128 единиц игры) в единицах мира. */
 export const TILE = 3.2;
 
-/** Порядок важен: тип с большим номером рисуется поверх меньших. */
-export const TILESET = ['lords_dirt', 'lords_dirtrough', 'lords_dirtgrass', 'lords_rock', 'lords_grass', 'lords_grassdark'] as const;
+/**
+ * Порядок важен: тип с большим номером рисуется поверх меньших. Последней идёт скверна
+ * Лордерона: она ложится поверх всего на заброшенных и захваченных базах.
+ */
+export const TILESET = ['lords_dirt', 'lords_dirtrough', 'lords_dirtgrass', 'lords_rock', 'lords_grass', 'lords_grassdark', 'lords_blight'] as const;
 export const enum Ground {
   Dirt = 0,
   Rough = 1,
@@ -32,6 +35,13 @@ export const enum Ground {
   Rock = 3,
   Grass = 4,
   DarkGrass = 5,
+  Blight = 6,
+}
+
+/** Есть ли тайлы скверны среди ассетов: без них скверна остаётся зелёным пятном (blight.ts). */
+let blightTiles = false;
+export function hasBlightTiles(): boolean {
+  return blightTiles;
 }
 
 const ATLAS_W = 1024;
@@ -257,7 +267,7 @@ function averageColor(px: Uint8ClampedArray): [number, number, number] {
 
 /** Картинка мини-карты: углы сетки цветами своей земли и деревья тёмными пятнами, как в WC3. */
 export function minimapArt(map: TerrainMap, trees: { x: number; z: number }[], size = 256): HTMLCanvasElement | null {
-  if (colors.length !== TILESET.length) return null;
+  if (colors.length < Ground.Blight) return null;
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = size;
   const ctx = canvas.getContext('2d')!;
@@ -270,7 +280,7 @@ export function minimapArt(map: TerrainMap, trees: { x: number; z: number }[], s
       const fz = (1 - py / size) * map.n;
       const i = Math.min(m - 1, Math.round(fx));
       const j = Math.min(m - 1, Math.round(fz));
-      const c = colors[map.corners[j * m + i]];
+      const c = colors[map.corners[j * m + i]] ?? colors[Ground.Rough];
       // Лёгкая рябь, чтобы земля не была плоской заливкой.
       const k = 0.92 + noise(px * 0.35, py * 0.35) * 0.16;
       const o = (py * size + px) * 4;
@@ -293,6 +303,9 @@ export function minimapArt(map: TerrainMap, trees: { x: number; z: number }[], s
 /** Материал земли из тайлов WC3, или null, если текстур земли нет (без пароля). */
 export async function terrainMaterial(scene: Scene, map: TerrainMap): Promise<StandardMaterial | null> {
   const files = await Promise.all(TILESET.map((t) => loadArt(`terrain/${t}.png`)));
+  // Скверна необязательна: без её тайлов на её месте рисуется неровная земля.
+  blightTiles = !!files[Ground.Blight];
+  if (!blightTiles) files[Ground.Blight] = files[Ground.Rough];
   if (files.some((f) => !f)) return null;
   const layers = await Promise.all(files.map((f) => decode(f!)));
   colors = layers.map(averageColor);

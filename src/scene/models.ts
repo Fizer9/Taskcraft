@@ -49,11 +49,36 @@ export function instantiate(container: AssetContainer): ModelInstance {
     }
   };
 
+  // А некоторые появляются посреди анимации: леса и стены в модели постройки здания.
+  type Switch = Record<string, [number, boolean][]>;
+  const switching = meshes.filter((m) => extras(m)?.visibleSwitch);
+  let clock = 0;
+  let looped = false;
+  const scene = root.getScene();
+  const observer = switching.length
+    ? scene.onBeforeRenderObservable.add(() => {
+        if (!current) return;
+        const anim = current.name;
+        const length = (current.to - current.from) / 60;
+        clock += (scene.getEngine().getDeltaTime() / 1000) * current.speedRatio;
+        const t = looped && length > 0 ? clock % length : clock;
+        for (const m of switching) {
+          const keys = (extras(m)!.visibleSwitch as Switch)[anim];
+          if (!keys) continue;
+          let on = keys[0][1];
+          for (const [at, vis] of keys) if (at <= t) on = vis;
+          if (m.isEnabled(false) !== on) m.setEnabled(on);
+        }
+      })
+    : null;
+
   const play = (name: string, loop = true, speed = 1) => {
     const g = groups.get(name);
     if (!g || g === current) return;
     current?.stop();
     current = g;
+    clock = 0;
+    looped = loop;
     applyVisibility(name);
     g.start(loop, speed, g.from, g.to);
   };
@@ -78,6 +103,7 @@ export function instantiate(container: AssetContainer): ModelInstance {
       });
     },
     dispose() {
+      if (observer) scene.onBeforeRenderObservable.remove(observer);
       entries.dispose();
     },
   };

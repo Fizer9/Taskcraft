@@ -38,6 +38,8 @@ interface Troop {
 export interface TroopLayout {
   /** Строй нанятых юнитов (у казармы или у ратуши главной базы). */
   rally: Vector3;
+  /** Дверь казармы (у главной базы ратуши): новый юнит выходит оттуда и бежит в строй. */
+  door: Vector3;
   /** Крепость врага; у главной базы её нет, тогда юниты в работе стоят в дозоре. */
   fortress: Vector3 | null;
   /** Промежуточные точки от строя к крепости в обход шахты и ратуши. */
@@ -46,6 +48,8 @@ export interface TroopLayout {
 
 export class Troops {
   private troops = new Map<string, Troop>();
+  /** После первой сверки новые юниты не появляются в строю, а выходят из казармы. */
+  private primed = false;
   private lib: ModelLibrary | null = null;
   private onMesh: (m: AbstractMesh) => void = () => {};
 
@@ -84,7 +88,7 @@ export class Troops {
     let fightIdx = 0;
     for (const task of live) {
       let tr = this.troops.get(task.id);
-      if (!tr) tr = this.spawn(task);
+      if (!tr) tr = this.spawn(task, this.primed);
       const want: State = task.status === 'active' ? 'fight' : 'rally';
       const spot = want === 'rally' ? this.rallySpot(rallyIdx++) : this.fightSpot(fightIdx++);
       const goingThere = tr.state === want || (want === 'fight' && tr.state === 'march');
@@ -96,6 +100,7 @@ export class Troops {
       }
       tr.spot = spot;
     }
+    this.primed = true;
   }
 
   private rallySpot(i: number): Vector3 {
@@ -112,13 +117,13 @@ export class Troops {
     return new Vector3(f.x + Math.sin(a) * r, 0, f.z + Math.cos(a) * r);
   }
 
-  private spawn(task: Task): Troop {
+  private spawn(task: Task, fromDoor: boolean): Troop {
     const level = task.level!;
     const root = new TransformNode('troop-' + task.id, this.scene);
     root.parent = this.parent;
     const start = this.rallySpot(this.troops.size);
-    root.position.copyFrom(start);
-    const tr: Troop = { taskId: task.id, level, root, model: null, state: 'rally', path: [], spot: start, timer: 0 };
+    root.position.copyFrom(fromDoor ? this.layout.door : start);
+    const tr: Troop = { taskId: task.id, level, root, model: null, state: 'rally', path: fromDoor ? [start] : [], spot: start, timer: 0 };
     this.dress(tr);
     this.troops.set(task.id, tr);
     return tr;
