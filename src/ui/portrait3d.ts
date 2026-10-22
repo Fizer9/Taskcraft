@@ -7,6 +7,7 @@
 import { Color3, Color4, DirectionalLight, Engine, HemisphericLight, PBRMaterial, Scene, TargetCamera, TransformNode, Vector3 } from '@babylonjs/core';
 import { loadArt } from '../assets/loader';
 import { instantiate, loadContainer, type ModelInstance } from '../scene/models';
+import { applyTeamColor } from '../scene/teamcolor';
 
 export interface PortraitLook {
   /** Модель: models/<model>.glb. */
@@ -15,6 +16,8 @@ export interface PortraitLook {
   anim?: string;
   /** Голос, на реплики которого портрет шевелит губами. */
   voice?: string;
+  /** Цвет базы для командных частей (state/colors.ts). */
+  team?: string;
 }
 
 interface Camera {
@@ -129,7 +132,7 @@ export class Portrait3D {
 
   /** Показать модель выбранного; null или модели нет — окно пустеет, видны буквы. */
   async show(look: PortraitLook | null) {
-    const key = look ? `${look.model}|${look.anim ?? ''}|${look.voice ?? ''}` : '';
+    const key = look ? `${look.model}|${look.anim ?? ''}|${look.voice ?? ''}|${look.team ?? ''}` : '';
     if (key === this.wanted) return;
     this.wanted = key;
     const entry = look ? await this.load(look.model) : null;
@@ -142,6 +145,8 @@ export class Portrait3D {
       return;
     }
     const { model, camera } = entry;
+    // Одна модель портрета на всех: цвет меняется под базу выбранного.
+    applyTeamColor(model, look.team);
     model.root.setEnabled(true);
     const cam = this.camera!;
     cam.position.copyFrom(camera.pos);

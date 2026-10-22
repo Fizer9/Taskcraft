@@ -6,6 +6,7 @@
 import { PBRMaterial, TransformNode, type AssetContainer, type Scene } from '@babylonjs/core';
 import { loadArt } from '../assets/loader';
 import { instantiate, loadContainer, type ModelInstance } from './models';
+import { applyTeamColor } from './teamcolor';
 
 export const MODEL_NAMES = [
   'townhall',
@@ -147,10 +148,12 @@ export class ModelLibrary {
   }
 
   /** Новый экземпляр модели в масштабе мира, или null если модели нет. */
-  create(name: ModelName, scale = 1): ModelInstance | null {
+  /** team — цвет базы для командных частей модели (без него остаётся синий игрока 1). */
+  create(name: ModelName, scale = 1, team?: string): ModelInstance | null {
     const c = this.containers.get(name);
     if (!c) return null;
     const inst = instantiate(c);
+    applyTeamColor(inst, team);
     inst.root.scaling.scaleInPlace(WC3_SCALE * scale);
     // Корень glTF уже повёрнут загрузчиком (правая система координат → левая), поэтому
     // ставим и вращаем модель через отдельный узел-держатель.

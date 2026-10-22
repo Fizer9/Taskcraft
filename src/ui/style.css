@@ -141,6 +141,7 @@ button {
   padding: 5px 7px;
 }
 #side input:focus, .modal input:focus { outline: 1px solid var(--gold); }
+.modal:focus { outline: none; }
 #side-list { overflow-y: auto; margin-top: 10px; flex: 1; padding-right: 4px; }
 .group-title { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; margin: 12px 0 4px; }
 .task {
@@ -237,12 +238,14 @@ button {
 }
 
 .info-frame { padding: 10px 14px; }
-.info { height: 100%; overflow: hidden; }
+#info { height: 100%; }
+/* Длинная карточка (срок, повтор, проект, уровни) прокручивается внутри окошка. */
+.info { height: 100%; overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y; scrollbar-width: thin; scrollbar-color: var(--gold-dark) transparent; }
 .info .row { display: flex; gap: 10px; margin: 3px 0; color: var(--muted); }
 .info .row b { color: var(--text); font-weight: normal; }
 .info .timer { font-size: 22px; color: var(--gold-bright); font-variant-numeric: tabular-nums; }
 .info .bar { margin: 6px 0; max-width: 360px; }
-.info .levels { display: flex; gap: 6px; margin-top: 8px; }
+.info .levels { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .info .levels .btn.on { border-color: var(--green); color: var(--green); }
 .info .stopped { color: var(--muted); }
 .info .working { color: var(--green); }
@@ -329,6 +332,8 @@ button {
   transform: translateX(-50%);
   z-index: 8;
 }
+/* На широком экране баннер не заходит на кнопки героев слева. */
+@media (min-width: 1100px) { #guard .banner { max-width: calc(100vw - 800px); } }
 #guard .banner {
   display: flex;
   gap: 12px;
@@ -680,6 +685,11 @@ input[type="range"] {
 .sphere-row .sphere-score b { color: var(--muted); font-weight: normal; }
 .modal .sphere-row .sphere-del { min-width: 0; padding: 0 8px; }
 .sphere-row .sphere-projects { grid-column: 1 / -1; color: var(--muted); font-size: 12px; }
+/* Узкий экран: название сферы во всю строку, оценки и крестик под ним. */
+@media (max-width: 520px) {
+  .sphere-row { grid-template-columns: 1fr auto; }
+  .sphere-row input[data-f='name'] { grid-column: 1 / -1; }
+}
 .info .link { cursor: pointer; text-decoration: underline dotted; }
 .modal .btn:disabled { opacity: 0.35; cursor: default; }
 .info h3 .edit { font-size: 14px; color: var(--muted); margin-left: 4px; text-decoration: none; }
@@ -813,6 +823,10 @@ html { touch-action: manipulation; -webkit-text-size-adjust: 100%; }
   body.wc3 #side, body.wc3 .modal { border-width: 12px; border-image-width: 12px; }
   .modal .grid2, .modal .grid3 { grid-template-columns: 1fr; }
   /* Шрифт полей не меньше 16px, иначе телефон увеличивает страницу при вводе. */
+  input, select, textarea { font-size: 16px !important; }
+}
+/* Планшет с сенсорным экраном тоже увеличивает страницу при касании мелкого поля. */
+@media (pointer: coarse) {
   input, select, textarea { font-size: 16px !important; }
 }
 
@@ -1014,12 +1028,12 @@ body.kb .modal, body.kb .modal.wide { max-height: calc(100dvh - var(--kb-top) - 
   justify-content: center;
   gap: 10px;
   padding: 24px;
-  background: radial-gradient(ellipse at 50% 40%, rgba(40, 28, 10, 0.88) 0%, rgba(0, 0, 0, 0.94) 70%);
+  background: radial-gradient(ellipse at 50% 40%, rgba(40, 28, 10, 0.97) 0%, #000 70%);
   cursor: pointer;
   animation: outcome-in 0.6s ease;
   transition: opacity 0.4s ease;
 }
-#outcome.defeat { background: radial-gradient(ellipse at 50% 40%, rgba(50, 8, 4, 0.9) 0%, rgba(0, 0, 0, 0.95) 70%); }
+#outcome.defeat { background: radial-gradient(ellipse at 50% 40%, rgba(50, 8, 4, 0.97) 0%, #000 70%); }
 #outcome.gone { opacity: 0; }
 .outcome-art { width: min(56vh, 80vw); aspect-ratio: 1; background: center / contain no-repeat; filter: drop-shadow(0 10px 30px #000); }
 .outcome-title { font-size: clamp(40px, 8vh, 84px); color: var(--gold-bright); text-shadow: 0 0 24px rgba(255, 190, 60, 0.45), 0 3px 0 #5a3a0c, 0 6px 18px #000; }
@@ -1345,7 +1359,8 @@ body.art-quest-icon .quest.failed .quest-icon { filter: grayscale(1) brightness(
   position: fixed;
   top: 44px;
   left: 322px;
-  z-index: 5;
+  /* Выше баннера «Герой пал» и «Рабочие сели отдыхать»: кнопка героя всегда нажимается. */
+  z-index: 9;
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -1418,7 +1433,7 @@ body.art-btn-atlas .hero-btn .btn-art ~ .face { display: none; }
 .cmd .hk, .inv-slot b, .hero-btn b, .hero-btn i.hp, .hero-btn i.mp, #idle-bases b { z-index: 1; }
 body.art-btn-atlas .cmd .hk { text-shadow: 0 0 2px #000, 0 1px 2px #000; }
 /* Иконка лежит в рамке ячейки, как в игре: у кнопок консоли тонкий отступ. */
-body.art-btn-atlas.wc3 .cmd .btn-art { inset: calc(3 * var(--u)); }
+body.art-btn-atlas.wc3 .cmd .btn-art { inset: calc(3 * var(--u, 1px)); }
 body.art-btn-atlas .inv-slot .btn-art { inset: calc(6 * var(--u, 1px)); }
 body.art-btn-atlas .queue-slot .btn-art { inset: 10%; }
 body.art-btn-atlas .hero-btn .btn-art { left: 0; height: auto; max-width: none; bottom: 12px; }
@@ -1441,8 +1456,11 @@ body.lobby #side, body.lobby #console, body.lobby #topbar, body.lobby #left-icon
   background: radial-gradient(ellipse at 50% 30%, rgba(20, 16, 10, 0.75), rgba(0, 0, 0, 0.92));
   transition: opacity 0.4s;
 }
-#lobby.gone { opacity: 0; pointer-events: none; }
+/* Пока лобби гаснет, оно ловит щелчки: второй щелчок двойного по «В бой!» не попадёт в консоль. */
+#lobby.gone { opacity: 0; }
 #lobby .lobby-panel { width: min(980px, calc(100vw - 24px)); max-height: calc(100vh - 24px); animation: modal-in 0.35s ease-out; }
+/* «В бой!» и «Загрузить сохранение» всегда видны внизу панели, без прокрутки. */
+#lobby .lobby-panel > .actions { position: sticky; bottom: -18px; z-index: 2; margin: 8px 0 -18px; padding: 10px 0 18px; background: rgba(16, 12, 9, 0.97); border-top: 1px solid var(--gold-dark); }
 #lobby h3 { font-size: 24px; text-align: center; }
 #lobby h4 { margin: 16px 0 2px; color: var(--gold-bright); font-weight: normal; font-size: 16px; }
 .lobby-grid { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 20px; }
@@ -1459,7 +1477,8 @@ body.lobby #side, body.lobby #console, body.lobby #topbar, body.lobby #left-icon
 .lobby-row { display: grid; gap: 6px; align-items: center; }
 .lobby-sphere { grid-template-columns: 12px minmax(0, 1fr) 56px 12px 56px; }
 .lobby-sphere span { color: var(--muted); text-align: center; }
-.lobby-project { grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr); }
+/* Название проекта главное в строке: оно шире списков сферы, типа и размера. */
+.lobby-project { grid-template-columns: minmax(0, 2.4fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr); }
 .lobby-dot { width: 12px; height: 12px; border: 1px solid #000; border-radius: 50%; }
 #lobby .lobby-row input, #lobby .lobby-row select { width: 100%; min-width: 0; }
 .lobby-heroes { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin-top: 8px; }
@@ -1547,3 +1566,16 @@ body.lobby #objectives { display: none; }
 .modal .plan-project > span { color: var(--gold-bright); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .modal .plan-project label.check { margin: 2px 0; font-size: 13px; }
 @media (max-width: 600px) { .modal .plan-project { grid-template-columns: 1fr; gap: 2px; } }
+
+/* Запасной экран, если игра не запустилась (main.ts rescue). */
+.rescue { position: fixed; inset: 0; z-index: 1000; display: grid; place-content: center; gap: 8px; padding: 16px; background: #0b0a08; color: #e8dcc0; text-align: center; font: 15px/1.4 Georgia, serif; }
+.rescue h3 { color: #f0c860; margin: 0; }
+.rescue .actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+.rescue .hint { color: #a89a7a; font-size: 13px; }
+
+/* Мелкие ссылки и заголовки на сенсорном экране: невидимая зона нажатия не меньше 44px. */
+@media (pointer: coarse) {
+  .link[data-action='edit-project'], .skill-points[data-action='learn'], b.link[data-action='open-spheres'] { position: relative; }
+  .link[data-action='edit-project']::after, .skill-points[data-action='learn']::after, b.link[data-action='open-spheres']::after { content: ''; position: absolute; inset: -14px; }
+  .lobby-more summary, button.obj-head { min-height: 44px; display: flex; align-items: center; }
+}

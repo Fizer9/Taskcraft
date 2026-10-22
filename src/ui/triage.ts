@@ -27,8 +27,10 @@ export function openTriage(store: Store) {
   const rows = inbox
     .map((t) => {
       const stale = now - t.createdAt >= BALANCE.portalScrollDays * 86_400_000;
-      const proj = `<select data-f="project"><option value="">— проект</option>${projects
-        .map((p) => `<option value="${p.id}"${p.id === t.projectId ? ' selected' : ''}>${esc(p.name)}</option>`)
+      // Законсервированный проект задачи тоже в списке, иначе выглядело бы, что проекта нет.
+      const own = s.projects.find((p) => p.id === t.projectId && p.frozen);
+      const proj = `<select data-f="project"><option value="">— проект</option>${[...projects, ...(own ? [own] : [])]
+        .map((p) => `<option value="${p.id}"${p.id === t.projectId ? ' selected' : ''}>${esc(p.name)}${p.frozen ? ' ❄' : ''}</option>`)
         .join('')}</select>`;
       const level = `<select data-f="level"><option value="">— уровень</option>${([1, 2, 3, 4] as Level[])
         .map((l) => `<option value="${l}"${l === t.level ? ' selected' : ''}${l > maxLevel(s) && l !== t.level ? ' disabled' : ''}>${l}. ${UNITS[l].name}</option>`)

@@ -124,7 +124,7 @@ export class World {
   /** Какие базы под скверной на нарисованной земле: при смене земля перерисовывается. */
   private blightSig = '';
   /** Образцы моделей для копий-инстансов, один на вид. */
-  private samples = new Map<ModelName, { mesh: Mesh; local: Matrix }[]>();
+  private samples = new Map<string, { mesh: Mesh; local: Matrix }[]>();
   /** Деревья и камни из копий: прячутся, когда на их месте закладывают новую базу. */
   private scenery: TransformNode[] = [];
   /** Мелочи у каждой базы, чтобы убрать их вместе с базой. */
@@ -532,27 +532,29 @@ export class World {
    * Сотни моделей со своими костями слишком тяжелы, поэтому для неподвижных вещей (деревья, камни,
    * ящики) делается один образец на вид, а на карте стоят его копии-инстансы.
    */
-  private placeCopies(lib: ModelLibrary, items: { model: ModelName; pos: Vector3; rot: number; scale: number }[]): TransformNode[] {
+  private placeCopies(lib: ModelLibrary, items: { model: ModelName; pos: Vector3; rot: number; scale: number; team?: string }[]): TransformNode[] {
     const samples = this.samples;
-    const sample = (name: ModelName) => {
-      let parts = samples.get(name);
+    // Образец на вид и цвет базы: флажок сбора у каждой базы своего цвета.
+    const sample = (name: ModelName, team?: string) => {
+      const key = team ? `${name}|${team}` : name;
+      let parts = samples.get(key);
       if (parts) return parts;
-      const inst = lib.create(name)!;
+      const inst = lib.create(name, 1, team)!;
       inst.playLike('Stand');
       // Положение каждой части относительно корня модели (с масштабом и поворотом из glTF).
       const inv = inst.root.computeWorldMatrix(true).clone().invert();
       const meshes = inst.root.getChildMeshes().filter((m): m is Mesh => m instanceof Mesh && m.getTotalVertices() > 0 && m.isEnabled());
       parts = meshes.map((mesh) => ({ mesh, local: mesh.computeWorldMatrix(true).multiply(inv) }));
       inst.root.position.y = -1000; // сам образец прячем под землю, видны только его копии
-      samples.set(name, parts);
+      samples.set(key, parts);
       return parts;
     };
-    return items.map(({ model, pos, rot, scale }, i) => {
+    return items.map(({ model, pos, rot, scale, team }, i) => {
       const holder = new TransformNode(model + 'Copy', this.scene);
       holder.position.copyFrom(pos);
       holder.rotation.y = rot;
       holder.scaling.setAll(scale);
-      for (const { mesh, local } of sample(model)) {
+      for (const { mesh, local } of sample(model, team)) {
         const copy = mesh.createInstance(`${model}${i}`);
         copy.parent = holder;
         local.decompose(copy.scaling, (copy.rotationQuaternion = new Quaternion()), copy.position);

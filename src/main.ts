@@ -1,10 +1,11 @@
 // Точка входа: состояние → сохранение → сцена → интерфейс → часы игры.
 
 import { Store } from './state/store';
-import { loadLocal, Sync } from './storage/sync';
+import { loadBackup, loadLocal, Sync } from './storage/sync';
+import { claimTab } from './storage/tabs';
 import { World } from './scene/world';
 import { Hud } from './ui/hud';
-import { unlockOnStart } from './ui/modals';
+import { chooseForeignGame, unlockOnStart } from './ui/modals';
 import { Notifier } from './ui/notify';
 import { applySkin } from './ui/skin';
 import { watchKeyboard } from './ui/keyboard';
@@ -16,8 +17,12 @@ import { watchOutcomes } from './ui/outcome';
 import { watchLobby } from './ui/lobby';
 
 async function main() {
+  // Две вкладки затирали бы сохранения друг друга: играет только одна.
+  let sync: Sync | null = null;
+  await claimTab(() => sync?.pause());
   const store = new Store(loadLocal() ?? undefined);
-  const sync = new Sync(store);
+  sync = new Sync(store);
+  sync.chooseForeign = (remote) => chooseForeignGame(store.state, remote);
   watchKeyboard();
 
   // На сайте игра не запускается без пароля: до входа на странице только окно ввода.
@@ -66,7 +71,41 @@ async function main() {
   Object.assign(window, { taskcraft: { store, world, sync, sounds, notifier } });
 }
 
-void main();
+/**
+ * Запасной выход, если игра не запустилась: сохранение можно скачать, вернуть прежнюю
+ * игру из резервной копии (она пишется перед загрузкой файла и новой игрой) или начать заново.
+ */
+function rescue(error: unknown) {
+  console.error(error);
+  const raw = localStorage.getItem('taskcraft.state');
+  const backup = loadBackup();
+  const box = document.createElement('div');
+  box.className = 'rescue';
+  box.innerHTML =
+    '<h3>Игра не запустилась</h3><p>Похоже, сохранение повреждено. Его можно скачать файлом, вернуть прежнюю игру или начать заново.</p>' +
+    `<p class="hint">${String((error as Error)?.message ?? error).replace(/[<>&]/g, '')}</p>` +
+    '<div class="actions"><button class="btn" data-a="save">Скачать сохранение</button>' +
+    (backup ? '<button class="btn" data-a="backup">Вернуть прежнюю игру</button>' : '') +
+    '<button class="btn" data-a="new">Начать новую игру</button></div>';
+  document.body.append(box);
+  box.querySelector('[data-a="save"]')!.addEventListener('click', () => {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([raw ?? '{}'], { type: 'application/json' }));
+    a.download = 'taskcraft-damaged.json';
+    a.click();
+  });
+  box.querySelector('[data-a="backup"]')?.addEventListener('click', () => {
+    localStorage.setItem('taskcraft.state', JSON.stringify(backup));
+    location.reload();
+  });
+  box.querySelector('[data-a="new"]')!.addEventListener('click', () => {
+    if (!confirm('Начать новую игру? Повреждённое сохранение будет удалено (скачай его сначала, если нужно).')) return;
+    localStorage.removeItem('taskcraft.state');
+    location.reload();
+  });
+}
+
+main().catch(rescue);
 
 // Сайт открывается и без сети: сервис-воркер (vite.config.ts, scripts/sw.js) держит в
 // кэше файлы игры и уже загруженную графику. В режиме разработки он не нужен.

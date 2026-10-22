@@ -112,7 +112,7 @@ export class Objectives {
     const dl = activeDreadlord(s);
     if (dl) {
       const sp = s.spheres.find((x) => x.id === dl.sphereId);
-      row('life', '☠', dl.name, `${dl.hp}/${dl.maxHp}${sp ? `, ${esc(sp.name)}` : ''}`, false, true);
+      row('life', '☠', esc(dl.name), `${dl.hp}/${dl.maxHp}${sp ? `, ${esc(sp.name)}` : ''}`, false, true);
     }
 
     // ---------- Фронты: базы проектов и их крепости ----------

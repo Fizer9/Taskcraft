@@ -181,7 +181,7 @@ export function techBlock(state: GameState, id: TechId): string | null {
   const t = techOf(state, id);
   if (!t || isDone(state, id)) return 'Уже есть.';
   if (state.construction) return state.construction.id === id ? 'Уже строится.' : 'Рабочие заняты другой стройкой.';
-  if (tierOf(state) < t.tier) return `Нужна ${t.tier === 2 ? 'крепость' : 'замок'}.`;
+  if (tierOf(state) < t.tier) return t.tier === 2 ? 'Нужна крепость.' : 'Нужен замок.';
   const missing = t.requires.filter((b) => !hasBuilding(state, b));
   if (missing.length) return `Нужно: ${missing.map((b) => TECH[b].name.toLowerCase()).join(', ')}.`;
   if (state.resources.gold < t.gold) return 'Не хватает золота.';

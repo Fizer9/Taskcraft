@@ -53,7 +53,7 @@ import {
 } from '../state/economy';
 import { plural, type GameEvent, type Store } from '../state/store';
 import { MAIN_HALL_ID, type AbilityId, type HeroKind, type Level, type Project, type Repeat, type Task } from '../state/types';
-import { BANNER_COLORS } from '../scene/base';
+import { projectColor } from '../state/colors';
 import { MAP_HALF, type World } from '../scene/world';
 import type { Sync } from '../storage/sync';
 import { openSettings } from './modals';
@@ -277,6 +277,8 @@ export class Hud {
   private chapterLaterDay = '';
   /** Открыта ли карточка строительства на главной ратуше. */
   private building = false;
+  /** Какая карточка показана: при смене выбора прокрутка карточки сбрасывается. */
+  private infoKey = '';
   /** «Ещё работаю» на итогах: напомнить снова через полчаса. */
   private summaryLaterUntil = 0;
   private weekLaterStart = '';
@@ -559,8 +561,10 @@ export class Hud {
       const input = form.elements.namedItem('title') as HTMLInputElement;
       const q = parseQuick(this.store.state, input.value);
       if (!q.title) return;
-      const t = this.store.addTask(q.title, q.projectId, q.projectId ? q.level : null);
+      // Уровень без проекта остаётся подсказкой для разбора входящих.
+      const t = this.store.addTask(q.title, q.projectId, q.level);
       if (q.due) this.store.setDue(t.id, q.due);
+      if (q.bad.length) this.store.say(`Срок ${q.bad.map((w) => `«${w}»`).join(', ')} не распознан: такой даты нет или она уже прошла. Слово осталось в названии.`, 'warn');
       if (q.projectId && !q.level) t.projectId = q.projectId;
       input.value = '';
       if (t.status === 'inbox') this.store.say('Новая задача у ратуши. Укажи проект и уровень, чтобы нанять юнита.');
@@ -728,7 +732,7 @@ export class Hud {
         this.groupKey(Number(digit[1]), true);
         return;
       }
-      if (e.key === '/') {
+      if (e.key === '/' || (e.code === 'Slash' && !e.shiftKey)) {
         e.preventDefault();
         $('side').classList.remove('hidden');
         $('filter-q').focus();
@@ -748,7 +752,8 @@ export class Hud {
       }
       // WASD двигают камеру (world.ts), приказов на них нет.
       if (CAMERA_KEYS.includes(e.code.slice(3)) && e.code.startsWith('Key')) return;
-      const key = e.key.length === 1 ? e.key.toUpperCase() : e.key;
+      // Буквы и цифры по физической клавише, как WASD и Ё: в русской раскладке Q это «й».
+      const key = /^Key[A-Z]$/.test(e.code) ? e.code.slice(3) : /^Digit\d$/.test(e.code) ? e.code.slice(5) : e.key.length === 1 ? e.key.toUpperCase() : e.key;
       const cmd = this.commands.find((c) => c.hotkey === key || (key === 'Escape' && c.hotkey === 'Esc'));
       if (cmd && cmd.enabled !== false) {
         e.preventDefault();
@@ -806,7 +811,8 @@ export class Hud {
   private async completeTask(t: Task) {
     let corrected: Level | undefined;
     // Калибровка: если по таймеру задача шла заметно дольше уровня, спрашиваем.
-    const byTime = levelBySpentTime(t.spentMs);
+    // Уровень по таймеру не выше доступного: без грифоньего гнезда грифона нет.
+    const byTime = Math.min(levelBySpentTime(t.spentMs), maxLevel(this.store.state)) as Level;
     if (t.level && byTime > t.level) {
       const answer = await ask(
         'Калибровка',
@@ -919,12 +925,12 @@ export class Hud {
 
   /** Окно переноса срока с выбором даты. */
   private rescheduleDialog(t: Task) {
-    const tomorrow = localDay(new Date(Date.now() + 86_400_000));
+    const tomorrow = addDays(localDay(), 1);
     const demon = isDemon(t);
     const { root, close } = openModal(
       `<h3>${demon ? 'Отбиться переносом' : 'Срок задачи'}</h3>` +
         `<div>${esc(t.title)}</div>` +
-        `<label>Новый срок</label><input type="date" name="due" value="${t.due && t.due >= tomorrow ? t.due : tomorrow}">` +
+        `<label>Новый срок</label><input type="date" name="due"${demon ? ` min="${localDay()}"` : ""} value="${t.due && t.due >= tomorrow ? t.due : tomorrow}">` +
         `<div class="hint">${demon || t.due ? `Перенос стоит ${rescheduleCost(t)} дерева.` : 'Поставить срок бесплатно.'} Без срока задача не станет демоном.</div>` +
         `<div class="actions">${t.due ? '<button class="btn" data-a="clear" style="margin-right:auto">Убрать срок</button>' : ''}` +
         `<button class="btn" data-a="cancel">Отмена</button><button class="btn" data-a="ok">Готово</button></div>`,
@@ -1035,7 +1041,7 @@ export class Hud {
       openTutorial(this.store);
     } else if (!this.legionShown && this.awayMs >= BALANCE.returnScreenDays * 86_400_000 && allDemons(s).length) {
       this.legionShown = true;
-      openLegion(this.store, Math.floor(this.awayMs / 86_400_000));
+      openLegion(this.store, daysBetween(localDay(new Date(Date.now() - this.awayMs)), localDay()));
     } else if (s.hyjal && s.hyjal.hp === 0 && this.chapterLaterDay !== day) {
       openChapter(this.store, () => (this.chapterLaterDay = day));
     } else if (activeBases(s).length > BALANCE.activeBasesLimit && this.basesLaterDay !== day) {
@@ -1245,7 +1251,8 @@ export class Hud {
         return { look: { model: DEMON_PORTRAIT[r], voice: DEMON_VOICE[r] }, face: '☠', title: DEMONS[r].name };
       }
       if (!t.level) return { look: null, face: '📜', title: t.title };
-      return { look: { model: UNIT_PORTRAIT[t.level], voice: UNIT_VOICE[t.level] }, face: UNIT_SHORT[t.level], title: UNITS[t.level].name };
+      const base = t.projectId ? this.store.project(t.projectId) : undefined;
+      return { look: { model: UNIT_PORTRAIT[t.level], voice: UNIT_VOICE[t.level], team: base && projectColor(base) }, face: UNIT_SHORT[t.level], title: UNITS[t.level].name };
     };
     if (sel.kind === 'hero') return heroFace;
     if (sel.kind === 'task') return unit(sel.id) ?? heroFace;
@@ -1253,12 +1260,14 @@ export class Hud {
     if (sel.kind === 'foe') return { look: FOES[sel.foe].portrait, face: '☠', title: FOES[sel.foe].name };
     const p = this.store.project(sel.id);
     const b = sel.building && BUILDING_LOOK[sel.building];
-    if (b) return { look: b, face: '⚑', title: p?.name ?? '' };
+    // Шахта ничья: её цветом базы не красим.
+    const team = p && sel.building !== 'goldmine' ? projectColor(p) : undefined;
+    if (b) return { look: { ...b, team }, face: '⚑', title: p?.name ?? '' };
     // Ратуша: главная показывает свой тир (ратуша, крепость, замок), захваченная лежит в
     // руинах: у портрета нет анимации смерти, поэтому руины — сама модель здания.
-    if (p?.capturedAt) return { look: { model: 'townhall', anim: 'Death 1' }, face: '⚑', title: p.name };
+    if (p?.capturedAt) return { look: { model: 'townhall', anim: 'Death 1', team }, face: '⚑', title: p.name };
     const anim = sel.id === MAIN_HALL_ID ? ['Portrait 1', 'Portrait Upgrade First', 'Portrait Upgrade Second'][tierOf(s) - 1] : 'Portrait 1';
-    return { look: { model: 'townhall_portrait', anim }, face: '⚑', title: p?.name ?? '' };
+    return { look: { model: 'townhall_portrait', anim, team }, face: '⚑', title: p?.name ?? '' };
   }
 
   private renderPortrait() {
@@ -1312,7 +1321,17 @@ export class Hud {
       const t = this.store.task(sel.id);
       if (t) html = this.taskInfo(t);
     }
-    setHtml($('info'), `<div class="info">${html}</div>`);
+    // Карточка перерисовывается каждую секунду (таймер): прокрутку сохраняем, а пока
+    // в ней открыт выбор даты или повтора, не трогаем, иначе он закроется под рукой.
+    const el = $('info');
+    const key = JSON.stringify(sel);
+    const same = key === this.infoKey;
+    if (same && el.contains(document.activeElement) && document.activeElement?.matches('input, select')) return;
+    const top = same ? ((el.firstElementChild as HTMLElement | null)?.scrollTop ?? 0) : 0;
+    setHtml(el, `<div class="info">${html}</div>`);
+    this.infoKey = key;
+    const box = el.firstElementChild as HTMLElement | null;
+    if (box && box.scrollTop !== top) box.scrollTop = top;
   }
 
   /** Враг у вражеской крепости: врата или их стража. Приказов ему не отдать. */
@@ -1403,7 +1422,7 @@ export class Hud {
     else if (idleGuardTripped(s)) status = '<span class="stopped">Рабочие сели отдыхать</span>';
     else status = `<span class="working">Добыча ${Math.round(f * 100)}%${heroHere ? (avatarActive(s, p.id) ? ` (${ABILITIES.avatar.icon} Аватар)` : '') : ' (без героя)'}</span>`;
     return (
-      `<h3><span style="color:${BANNER_COLORS[p.kind]}">⚑</span> ${esc(p.name)}${p.id === MAIN_HALL_ID ? '' : ` <span class="link edit" data-action="edit-project" data-id="${p.id}" title="Переименовать, сменить сферу или тип, удалить">✎</span>`}</h3>` +
+      `<h3><span style="color:${projectColor(p)}">⚑</span> ${esc(p.name)}${p.id === MAIN_HALL_ID ? '' : ` <span class="link edit" data-action="edit-project" data-id="${p.id}" title="Переименовать, сменить сферу или тип, удалить">✎</span>`}</h3>` +
       `<div class="row">${sphere ? `Земля: <b class="link" data-action="open-spheres" title="Редактор сфер">${esc(sphere.name)}</b> ${sphere.score} → ${sphere.target}` : '<b>Бытовые и повторяющиеся дела</b>'} · база ${kind}</div>` +
       (p.fortressMaxHp > 0 ? bar('hp', gateHp, p.fortressMaxHp, `Крепость врага ${gateHp} / ${p.fortressMaxHp}`) : '') +
       (task
@@ -1416,13 +1435,13 @@ export class Hud {
       (activeDreadlord(s)?.sphereId === p.sphereId && p.id !== MAIN_HALL_ID
         ? `<div class="row dread">♛ Повелитель ужаса ${esc(activeDreadlord(s)!.name)} в этой земле: ${activeDreadlord(s)!.hp} / ${activeDreadlord(s)!.maxHp}. Задачи базы бьют и по нему.</div>`
         : '') +
-      (isBlighted(s, p) ? `<div class="row legion">☠ Скверна: ${idleDays(s, p)} дней без движения. Сдвинь любую задачу проекта.</div>` : '') +
+      (isBlighted(s, p) ? `<div class="row legion">☠ Скверна: ${idleDays(s, p)} ${plural(idleDays(s, p), 'день', 'дня', 'дней')} без движения. Сдвинь любую задачу проекта.</div>` : '') +
       (p.damage && !p.capturedAt
         ? `<div class="row stopped">🔥 ${p.frozen ? `Здания в руинах: повреждения ${p.damage}%, ремонт H` : `Здания горят: повреждения ${p.damage}%, добыча −${Math.round(p.damage / 2)}%`}</div>`
         : '') +
       (p.id === MAIN_HALL_ID ? this.techInfo() : '') +
       (p.id === 'main' && portalSize(s)
-        ? `<div class="row legion">☠ Портал Легиона: ${portalSize(s)} неразобранных задач старше ${BALANCE.portalScrollDays} дней</div>`
+        ? `<div class="row legion">☠ Портал Легиона: ${portalSize(s)} ${plural(portalSize(s), 'неразобранная задача', 'неразобранные задачи', 'неразобранных задач')} старше ${BALANCE.portalScrollDays} дней</div>`
         : '') +
       (demons.length && !p.capturedAt
         ? `<div class="row legion">☠ Легион у базы: ${demons.length} · добыча −${Math.min(100, Math.round(BALANCE.demonMiningPenalty * demons.length * 100))}%${demons.length >= BALANCE.demonsToHide ? ', рабочие спрятались' : ''}</div>`
@@ -1541,8 +1560,8 @@ export class Hud {
         btn: 'footman',
         hotkey: 'Q',
         title: 'Нанять юнита',
-        text: `Открыть казарму этой базы: выбери юнита по размеру и впиши дело. +${BALANCE.hireLumber} дерева за каждого.`,
-        enabled: !p.capturedAt,
+        text: p.frozen ? 'База законсервирована: расконсервируй её, чтобы нанимать.' : `Открыть казарму этой базы: выбери юнита по размеру и впиши дело. +${BALANCE.hireLumber} дерева за каждого.`,
+        enabled: !p.capturedAt && !p.frozen,
         run: () => this.openBarracks(p),
       },
       p.frozen ? thaw : {
@@ -1639,8 +1658,15 @@ export class Hud {
         hotkey: 'C',
         title: 'Второе дыхание',
         cost: `+${BALANCE.secondWindMana} маны, раз в день`,
-        text: 'После работы ужин или прогулка возвращают часть маны.',
-        enabled: s.secondWindDay !== gameDay(s) && currentShift(s) !== 'day',
+        text:
+          s.secondWindDay === gameDay(s)
+            ? 'Второе дыхание уже было сегодня.'
+            : currentShift(s) === 'day'
+              ? 'Второе дыхание бывает после работы.'
+              : s.hero.mana >= s.hero.maxMana
+                ? 'Мана и так полная: второе дыхание пригодится позже.'
+                : 'После работы ужин или прогулка возвращают часть маны.',
+        enabled: s.secondWindDay !== gameDay(s) && currentShift(s) !== 'day' && s.hero.mana < s.hero.maxMana,
         run: () => this.store.secondWind(),
       },
       {
@@ -1990,8 +2016,11 @@ export class Hud {
         hotkey: String(l),
         title: `${UNITS[l].name}`,
         cost: UNITS[l].hint,
-        text: `Уровень ${l}: ${reward(this.store.state, UNITS[l].xp, 'xp')} опыта, урон по крепости ${l}.`,
-        enabled: open && t.status !== 'active',
+        text:
+          l > maxLevel(this.store.state) && t.level !== l
+            ? 'Задачи 4 уровня ведут грифоны: нужно грифонье гнездо (замок).'
+            : `Уровень ${l}: ${reward(this.store.state, UNITS[l].xp, 'xp')} опыта, урон по крепости ${l}.`,
+        enabled: open && t.status !== 'active' && (l <= maxLevel(this.store.state) || t.level === l),
         run: () => this.hireSelected(l),
       });
     }
@@ -2044,7 +2073,7 @@ export class Hud {
       cmds.push({ icon: '↩', btn: 'cancel', hotkey: 'Esc', title: 'Назад', text: 'Снять выделение и вернуться к базе.', run: () => this.select({ kind: 'base', id: sel.baseId }) });
     } else {
       const p = this.contextBase();
-      if (p) cmds = sel.building === 'barracks' && !p.capturedAt ? this.barracksCommands(p) : this.building && p.id === MAIN_HALL_ID ? this.buildCommands() : this.baseCommands(p);
+      if (p) cmds = sel.building === 'barracks' && !p.capturedAt && !p.frozen ? this.barracksCommands(p) : this.building && p.id === MAIN_HALL_ID ? this.buildCommands() : this.baseCommands(p);
     }
     // WASD двигают камеру, поэтому у команд в этих клетках клавиш нет.
     for (const c of cmds) if (CAMERA_KEYS.includes(c.hotkey)) c.hotkey = '';
@@ -2137,7 +2166,7 @@ export class Hud {
         ctx.fillStyle = '#d43a2a';
         ctx.fillRect(toXu(p.slot.x + (p.slot.x / len) * 48) - 2, toYu(p.slot.z + (p.slot.z / len) * 48) - 2, 4, 4);
       }
-      ctx.fillStyle = BANNER_COLORS[p.kind];
+      ctx.fillStyle = projectColor(p);
       const size = p.id === 'main' ? 9 : 6;
       ctx.fillRect(x - size / 2, y - size / 2, size, size);
       // Тёмная кайма, чтобы значок читался на траве и на земле.

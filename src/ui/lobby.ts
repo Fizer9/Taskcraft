@@ -10,7 +10,7 @@ import { plural, type Store } from '../state/store';
 import type { BaseKind, GameState, HeroKind, LegionMode, Project, Settings, Tuning } from '../state/types';
 import { MAIN_HALL_ID } from '../state/types';
 import type { Sync } from '../storage/sync';
-import { BANNER_COLORS } from '../scene/base';
+import { assignColors, projectColor } from '../state/colors';
 import { landSpots } from '../scene/lands';
 import { importSave } from './backup';
 import { btnArt, type BtnIcon } from './btn-icons';
@@ -176,10 +176,12 @@ function openLobby(store: Store, sync: Sync, mapArt: () => HTMLCanvasElement | n
       Array.from({ length: 7 - from }, (_, i) => i + from)
         .map((i) => `<button class="btn${i === n ? ' on' : ''}" data-n="${i}">${i}</button>`)
         .join('') +
-      `<label class="lobby-custom${custom ? ' on' : ''}">Своё <input type="number" min="${from}" max="${max}" value="${custom ? n : ''}" placeholder="${n}"></label>`;
+      `<label class="lobby-custom${custom ? ' on' : ''}">Своё <input type="number" min="${from}" max="${max}" step="1" value="${custom ? n : ''}" placeholder="${n}"></label>`;
   };
 
   const resize = (kind: 'spheres' | 'projects', n: number) => {
+    // Дробное число в поле «Своё» (1,5) округляется: строк столько, сколько видно.
+    n = Math.round(n);
     if (kind === 'spheres') {
       n = Math.min(12, Math.max(1, n));
       while (spheres.length < n) spheres.push({ name: SPHERE_NAMES[spheres.length] ?? '', score: 5, target: 8 });
@@ -200,8 +202,9 @@ function openLobby(store: Store, sync: Sync, mapArt: () => HTMLCanvasElement | n
       if (b) resize(kind, Number(b.dataset.n));
     });
     box.addEventListener('change', (e) => {
-      const v = Number((e.target as HTMLInputElement).value);
-      if (v) resize(kind, v);
+      const raw = (e.target as HTMLInputElement).value.trim();
+      // 0 тоже число: проектов может не быть совсем (сфер не меньше одной, поле покажет 1).
+      if (raw !== '' && Number.isFinite(Number(raw))) resize(kind, Number(raw));
     });
   }
 
@@ -318,6 +321,7 @@ function openLobby(store: Store, sync: Sync, mapArt: () => HTMLCanvasElement | n
       const sphereId = `s${p.sphere}`;
       s.projects.push({ id: `p${i}`, name: p.name, sphereId, kind: p.kind, fortressHp: p.hp, fortressMaxHp: p.hp, slot: freeSlot(s, sphereId), frozen: false } as Project);
     }
+    assignColors(s);
     return s;
   };
 
@@ -364,7 +368,7 @@ function openLobby(store: Store, sync: Sync, mapArt: () => HTMLCanvasElement | n
         ctx.strokeRect(X(f.x) - r, Y(f.z) - r, r * 2, r * 2);
       }
       const size = (main ? 14 : 10) * u;
-      ctx.fillStyle = BANNER_COLORS[p.kind];
+      ctx.fillStyle = projectColor(p);
       ctx.fillRect(X(p.slot.x) - size / 2, Y(p.slot.z) - size / 2, size, size);
       ctx.strokeStyle = '#000';
       ctx.lineWidth = 1.5 * u;

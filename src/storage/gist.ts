@@ -32,7 +32,11 @@ export class GistStorage {
     if (!file) return null;
     // Большие файлы GitHub отдаёт обрезанными, тогда читаем по raw_url.
     const content: string = file.truncated ? await (await fetch(file.raw_url)).text() : file.content;
-    return JSON.parse(content) as GameState;
+    try {
+      return JSON.parse(content) as GameState;
+    } catch {
+      throw new GistError('В Gist повреждённое сохранение.');
+    }
   }
 
   /** Создаёт новый секретный Gist и возвращает его id. */
@@ -52,25 +56,17 @@ export class GistStorage {
     return json.id;
   }
 
-  /**
-   * Сохраняет состояние с защитой от перезаписи: если в Gist уже лежит ревизия новее,
-   * чем та, от которой мы начинали, возвращает её вместо записи.
-   */
-  async save(state: GameState, baseRev: number): Promise<{ ok: true; rev: number } | { ok: false; remote: GameState }> {
+  /** Записывает состояние в Gist как есть (решение, что писать, принимает Sync). */
+  async write(state: GameState): Promise<void> {
     if (!this.gistId) {
-      state.rev = baseRev + 1;
       await this.create(state);
-      return { ok: true, rev: state.rev };
+      return;
     }
-    const remote = await this.load();
-    if (remote && remote.rev > baseRev) return { ok: false, remote };
-    const next = { ...state, rev: baseRev + 1 };
     const res = await fetch(`${API}/${this.gistId}`, {
       method: 'PATCH',
       headers: this.headers(),
-      body: JSON.stringify({ files: { [FILE]: { content: JSON.stringify(next) } } }),
+      body: JSON.stringify({ files: { [FILE]: { content: JSON.stringify(state) } } }),
     });
     if (!res.ok) throw new GistError(`Не удалось сохранить в Gist: ${res.status}`);
-    return { ok: true, rev: next.rev };
   }
 }

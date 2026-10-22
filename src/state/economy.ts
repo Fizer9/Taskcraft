@@ -34,11 +34,19 @@ export function minutesOf(hhmm: string): number {
   return h * 60 + m;
 }
 
+/** Попадает ли минута суток в отрезок [from, to): отрезок может переходить через полночь. */
+export function inWindow(mins: number, from: number, to: number): boolean {
+  from = ((from % 1440) + 1440) % 1440;
+  to = ((to % 1440) + 1440) % 1440;
+  return from <= to ? mins >= from && mins < to : mins >= from || mins < to;
+}
+
 export function currentShift(state: GameState, now = new Date()): Shift {
   const s = state.settings;
   const mins = now.getHours() * 60 + now.getMinutes();
   const isoDay = now.getDay() === 0 ? 7 : now.getDay();
-  const awake = mins >= minutesOf(s.wakeUp) && mins < minutesOf(s.bedtime);
+  // Отбой может быть и после полуночи (сова: подъём 09:00, отбой 01:00).
+  const awake = inWindow(mins, minutesOf(s.wakeUp), minutesOf(s.bedtime));
   if (!awake) return 'night';
   if (!s.workDays.includes(isoDay)) return 'weekend';
   if (mins >= minutesOf(s.dayStart) && mins < minutesOf(s.dayEnd)) return 'day';
@@ -132,14 +140,21 @@ export function gameDay(state: GameState, now = new Date()): string {
   return state.lastLegionDay ?? localDay(now);
 }
 
+/** Игровой день момента at: до подъёма это ещё вчерашний день. */
+export function gameDayAt(state: GameState, at: number): string {
+  const d = new Date(at);
+  const day = localDay(d);
+  return d.getHours() * 60 + d.getMinutes() < minutesOf(state.settings.wakeUp) ? addDays(day, -1) : day;
+}
+
 /** Пора подводить итоги: до отбоя осталось совсем немного или он уже прошёл. */
 export function summaryDue(state: GameState, now = new Date()): boolean {
   if (state.summaryDay === gameDay(state, now)) return false;
   const mins = now.getHours() * 60 + now.getMinutes();
   const bed = minutesOf(state.settings.bedtime) - BALANCE.summaryBeforeBedMinutes;
   const wake = minutesOf(state.settings.wakeUp);
-  // После полуночи, но до подъёма, это ещё вечер прошлого игрового дня.
-  return mins >= bed || mins < wake;
+  // От получаса до отбоя до подъёма; после полуночи это ещё вечер прошлого игрового дня.
+  return inWindow(mins, bed, wake);
 }
 
 /** Понедельник недели, к которой относится игровой день. */
@@ -196,7 +211,8 @@ export function legionAsleep(state: GameState, now = Date.now()): boolean {
   const mode = state.settings.legion ?? 'normal';
   if (mode === 'peace') return true;
   if (mode === 'burning' || !state.startedAt) return false;
-  return now - state.startedAt < BALANCE.quietDays * 86_400_000;
+  // Три полных дня тишины по календарю: игра, начатая в понедельник днём, просыпается в четверг утром.
+  return localDay(new Date(now)) < addDays(localDay(new Date(state.startedAt)), BALANCE.quietDays);
 }
 
 /** Сколько демонов у стен захватывают базу: в пылающем режиме меньше. */
@@ -297,8 +313,10 @@ export function councilSince(state: GameState, now = Date.now()): number {
 export function sphereReport(state: GameState, sphereId: string, now = Date.now()): SphereReport {
   const since = councilSince(state, now);
   const projects = state.projects.filter((p) => p.sphereId === sphereId && p.id !== MAIN_HALL_ID);
-  const ids = new Set(projects.map((p) => p.id));
-  const r: SphereReport = { done: 0, demonsBeaten: 0, demonsBanished: 0, fortresses: 0, demonsNow: 0, blighted: 0, bases: projects.length };
+  // Базы, ушедшие в зал славы с прошлого совета, тоже основания: их задачи и взятая крепость.
+  const glory = (state.hallOfFame ?? []).filter((g) => g.sphereId === sphereId && g.wonAt >= since);
+  const ids = new Set([...projects.map((p) => p.id), ...glory.map((g) => g.id)]);
+  const r: SphereReport = { done: 0, demonsBeaten: 0, demonsBanished: 0, fortresses: glory.length, demonsNow: 0, blighted: 0, bases: projects.length + glory.length };
   for (const t of state.tasks) {
     if (!t.projectId || !ids.has(t.projectId)) continue;
     if (isDemon(t)) r.demonsNow++;

@@ -29,6 +29,8 @@ export interface Project {
   fortressMaxHp: number;
   /** Позиция базы на карте (клетка сетки). */
   slot: { x: number; z: number };
+  /** Цвет базы: номер в TEAM_COLORS (state/colors.ts), у каждой базы свой. */
+  color?: number;
   /** Законсервирована: проект на паузе, база не добывает, не гниёт и не зовёт Легион. */
   frozen: boolean;
   /** День расконсервации: сроки, прошедшие за время паузы, считаются просроченными с этого дня. */
@@ -54,6 +56,8 @@ export interface Task {
   createdAt: number;
   /** Сколько миллисекунд задача провела в работе (для калибровки уровня). */
   spentMs: number;
+  /** Дерево за найм этой задачи уже дано. */
+  hireLumberPaid?: boolean;
   doneAt?: number;
   /** Когда задачу отменили или изгнали демона. */
   cancelledAt?: number;
@@ -140,6 +144,8 @@ export interface GameState {
   schema: 1;
   /** Номер ревизии: растёт при каждом сохранении в Gist, нужен для защиты от перезаписи. */
   rev: number;
+  /** Какая это игра: новая игра или игра из другого Gist получает свой id, чтобы не слить чужие игры. */
+  gameId?: string;
   updatedAt: number;
   resources: { gold: number; lumber: number };
   spheres: Sphere[];
@@ -163,7 +169,8 @@ export interface GameState {
   /** Долг по дереву за переносы сроков: следующее дерево от планирования идёт на погашение. */
   lumberDebt?: number;
   /** Утреннее планирование: задачи на день, из любых проектов. */
-  dayPlan?: { day: string; taskIds: string[] };
+  /** paidIds: за какие задачи сегодня уже дано дерево (снять с плана и отметить снова ничего не даёт). */
+  dayPlan?: { day: string; taskIds: string[]; paidIds?: string[] };
   /** Что случилось ночью: показывается на утреннем планировании. */
   nightReport?: { day: string; lines: string[] };
   stats?: DayStats;

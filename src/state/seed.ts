@@ -3,6 +3,7 @@
 // документа остался для тестов и симуляции баланса.
 
 import { BALANCE } from './config';
+import { localDay } from './economy';
 import { MAIN_HALL_ID, type GameState, type Project, type Sphere } from './types';
 
 const spheres: Sphere[] = [
@@ -66,6 +67,7 @@ export function createInitialState(now = Date.now(), samples = false): GameState
   return {
     schema: 1,
     rev: 0,
+    gameId: `g-${now.toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
     updatedAt: now,
     resources: { gold: BALANCE.startGold, lumber: BALANCE.startLumber },
     spheres,
@@ -84,7 +86,7 @@ export function createInitialState(now = Date.now(), samples = false): GameState
     onBreak: false,
     lastConfirmAt: now,
     lastTick: now,
-    lastDawn: new Date(now).toISOString().slice(0, 10),
+    lastDawn: localDay(new Date(now)),
     settings: {
       dayStart: '09:00',
       dayEnd: '18:00',

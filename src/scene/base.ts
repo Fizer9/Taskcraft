@@ -26,12 +26,7 @@ import { Demons, type DemonView } from './legion';
 import { BlightFx } from './blight';
 import { Meteor } from './meteor';
 import type { Foe, UnitNode } from './selection';
-
-export const BANNER_COLORS: Record<Project['kind'], string> = {
-  work: '#2f6bff',
-  personal: '#3fae4a',
-  any: '#e2b63c',
-};
+import { projectColor } from '../state/colors';
 
 type WorkerState = 'toWork' | 'waiting' | 'working' | 'toHall' | 'dropping' | 'idle';
 
@@ -130,6 +125,8 @@ const GRID_N = GRID_HALF * 2;
 const BODY = 0.5;
 
 export class Base {
+  /** Цвет базы: флаг, командные части зданий и юнитов. */
+  readonly team: string;
   readonly root: TransformNode;
   /** Название базы и его цвет: показывается над ратушей при наведении и выборе (world.ts). */
   label = { text: '', color: '#ffd34d' };
@@ -199,6 +196,7 @@ export class Base {
     private scene: Scene,
     readonly project: Project,
   ) {
+    this.team = projectColor(project);
     const main = project.fortressMaxHp === 0;
     this.root = new TransformNode('base-' + project.id, scene);
     this.root.position.set(project.slot.x, 0, project.slot.z);
@@ -214,11 +212,11 @@ export class Base {
     dirt.parent = this.root;
     dirt.isPickable = false;
 
-    const hall = P.townHall(scene, BANNER_COLORS[project.kind], main);
+    const hall = P.townHall(scene, this.team, main);
     hall.parent = this.root;
     // Главная база — замок (вторая ступень улучшения ратуши), остальные — ратуши.
     this.swaps.push({ node: hall, model: 'townhall', scale: main ? 1.15 : 1, anim: 'Stand 1' });
-    if (main) this.tech = new MainBuildings(scene, this.root, project.id);
+    if (main) this.tech = new MainBuildings(scene, this.root, project.id, this.team);
     this.hallR = main ? 5.6 : 4.9;
     this.obstacles.push({ c: Vector3.Zero(), r: this.hallR });
 
@@ -279,6 +277,7 @@ export class Base {
         ? { rally: new Vector3(9, 0, 14), door: new Vector3(3, 0, 7), fortress: null, route: [] }
         : { rally: new Vector3(-18, 0, 15), door: BARRACKS.add(new Vector3(1.5, 0, 4.2)), fortress: new Vector3(0, 0, -48), route: [new Vector3(-8, 0, 4), new Vector3(-7, 0, -28)] },
       project.id,
+      this.team,
     );
     this.troops.hearing = () => this.audible;
     this.troops.onStrike = (level) => this.struck(level);
@@ -334,7 +333,7 @@ export class Base {
     for (const s of [...this.swaps]) this.swap(s);
     this.placeGuards();
     for (const w of this.workers) {
-      const model = lib.create('peasant');
+      const model = lib.create('peasant', 1, this.team);
       if (!model) continue;
       for (const c of w.root.getChildren()) c.dispose();
       model.root.parent = w.root;
@@ -409,7 +408,8 @@ export class Base {
   }
 
   private swap(s: Swap): ModelInstance | null {
-    const inst = this.lib?.create(s.model, s.scale);
+    // Шахта ничья, а портал принадлежит Легиону: их цветом базы не красим.
+    const inst = this.lib?.create(s.model, s.scale, s.model === 'goldmine' || s.model === 'demongate' ? undefined : this.team);
     if (!inst) return null;
     inst.root.parent = s.node.parent;
     inst.root.position.copyFrom(s.node.position);
@@ -470,7 +470,7 @@ export class Base {
    * Мелочи вокруг базы в мировых координатах: ящики и факелы у ратуши, сено за забором,
    * колодец, стойки с оружием у казармы, а у врат демонов черепа на кольях и зелёные жаровни.
    */
-  decor(): { model: ModelName; pos: Vector3; rot: number; scale: number }[] {
+  decor(): { model: ModelName; pos: Vector3; rot: number; scale: number; team?: string }[] {
     const main = !this.fortressNode;
     const items: [ModelName, number, number, number, number?][] = [
       ['crates0', 6.5, 5, 0.4],
@@ -519,6 +519,7 @@ export class Base {
       pos: Vector3.TransformCoordinates(new Vector3(x, 0, z), m),
       rot: rot + this.root.rotation.y,
       scale,
+      ...(model === 'rallypoint' ? { team: this.team } : {}),
     }));
   }
 
@@ -807,7 +808,7 @@ export class Base {
    * false, если модели постройки нет: тогда ферма просто вырастает из земли.
    */
   private raise(node: TransformNode): boolean {
-    const birth = this.lib?.create('farmbirth', 0.85);
+    const birth = this.lib?.create('farmbirth', 0.85, this.team);
     if (!birth) return false;
     birth.root.parent = node.parent;
     birth.root.position.copyFrom(node.position);

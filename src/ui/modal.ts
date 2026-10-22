@@ -8,6 +8,9 @@ const ESCAPE_BUTTONS = ['cancel', 'close', 'later', 'skip'].map((a) => `[data-a=
 /** Сколько длится анимация закрытия (style.css, .modal.closing). */
 const CLOSE_MS = 160;
 
+/** Что можно выбрать Tab внутри окна. */
+const FOCUSABLE = 'button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), summary, a[href], [tabindex]:not([tabindex="-1"])';
+
 let current: { root: HTMLElement; close: () => void } | null = null;
 let escBound = false;
 
@@ -28,7 +31,10 @@ function bindEscape() {
   window.addEventListener(
     'keydown',
     (e) => {
+      if (e.key === 'Tab') return trapTab(e);
       if (e.key !== 'Escape' || document.body.classList.contains('locked')) return;
+      // Поверх окна экран победы или поражения: Esc закрывает только его (ui/outcome.ts).
+      if (document.querySelector('#outcome:not(.gone)')) return;
       const root = openRoot();
       if (!root) return;
       e.preventDefault();
@@ -41,6 +47,21 @@ function bindEscape() {
   );
 }
 
+/** Tab не уходит из открытого окна в панель задач и верхнюю полосу за затемнением. */
+function trapTab(e: KeyboardEvent) {
+  const root = openRoot();
+  if (!root) return;
+  const items = [...root.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((x) => x.offsetParent !== null);
+  if (!items.length) return;
+  const first = items[0];
+  const last = items[items.length - 1];
+  const inside = root.contains(document.activeElement);
+  if (!inside || (e.shiftKey && document.activeElement === first) || (!e.shiftKey && document.activeElement === last)) {
+    e.preventDefault();
+    (e.shiftKey ? last : first).focus();
+  }
+}
+
 export function openModal(html: string, cls = ''): { root: HTMLElement; close: () => void } {
   bindEscape();
   const el = host();
@@ -50,6 +71,12 @@ export function openModal(html: string, cls = ''): { root: HTMLElement; close: (
   el.classList.remove('closing');
   const root = el.firstElementChild as HTMLElement;
   if (fresh) void sounds.play('menuopen');
+  // Фокус в окно (на саму панель, чтобы на телефоне не выскакивала клавиатура), если
+  // вызвавший код сам не поставил его в поле.
+  root.tabIndex = -1;
+  queueMicrotask(() => {
+    if (el.firstElementChild === root && !root.contains(document.activeElement)) root.focus({ preventScroll: true });
+  });
   const close = () => {
     if (el.firstElementChild !== root || root.classList.contains('closing')) return;
     root.classList.add('closing');

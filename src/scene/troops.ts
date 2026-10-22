@@ -102,6 +102,7 @@ export class Troops {
     private parent: TransformNode,
     private layout: TroopLayout,
     private baseId: string,
+    private team: string,
   ) {}
 
   setLibrary(lib: ModelLibrary, onMesh: (m: AbstractMesh) => void) {
@@ -179,7 +180,7 @@ export class Troops {
   /** Модель WC3, если она загружена, иначе простая фигурка цвета игрока. */
   private dress(tr: Troop) {
     if (tr.model) return;
-    const model = this.lib?.create(MODEL[tr.level]) ?? null;
+    const model = this.lib?.create(MODEL[tr.level], 1, this.team) ?? null;
     for (const c of tr.root.getChildren()) c.dispose();
     if (model) {
       model.root.parent = tr.root;
@@ -190,7 +191,7 @@ export class Troops {
       tr.model = model;
     } else {
       const body = MeshBuilder.CreateCapsule('troopBody', { radius: 0.6, height: 1.6 + tr.level * 0.3 }, this.scene);
-      body.material = P.mat(this.scene, '#2b52d9');
+      body.material = P.mat(this.scene, this.team);
       body.parent = tr.root;
       body.position.y = 0.9;
       body.metadata = { baseId: this.baseId, taskId: tr.taskId };

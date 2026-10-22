@@ -22,7 +22,7 @@ function dayOf(state: GameState, ms: number): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-const hours = (ms: number) => (ms >= 3_600_000 ? `${(ms / 3_600_000).toFixed(1).replace('.0', '')} ч` : `${Math.round(ms / 60_000)} мин`);
+const hours = (ms: number) => (ms >= 3_600_000 ? `${(ms / 3_600_000).toFixed(1).replace('.0', '').replace('.', ',')} ч` : `${Math.round(ms / 60_000)} мин`);
 
 function byDays(state: GameState): string {
   const today = gameDay(state);
@@ -48,7 +48,7 @@ function byDays(state: GameState): string {
   const worked = rows.reduce((n, r) => n + (r.st?.workedMs ?? 0), 0);
   const best = rows.reduce((a, b) => (b.done > a.done ? b : a), rows[0]);
   return (
-    `<div class="vault-sum">За ${DAYS} дней: задач <b>${total}</b>, в среднем <b>${(total / DAYS).toFixed(1)}</b> в день` +
+    `<div class="vault-sum">За ${DAYS} дней: задач <b>${total}</b>, в среднем <b>${(total / DAYS).toFixed(1).replace('.', ',')}</b> в день` +
     (worked ? `, под таймером <b>${hours(worked)}</b>` : '') +
     (best.done ? `. Лучший день: <b>${best.label}</b>, ${best.done}` : '') +
     `</div>` +
@@ -59,7 +59,7 @@ function byDays(state: GameState): string {
           `<span class="vault-n">${r.done || ''}</span><span class="vault-col" style="height:${Math.round((r.done / max) * 100)}%"></span><span class="vault-l">${r.wd}<br>${r.dd}<span class="vault-m">.${r.mm}</span></span></div>`,
       )
       .join('')}</div>` +
-    `<div class="hint">Высота столбца: сделанные задачи. Наведи на день, чтобы увидеть таймер, золото и урон (они пишутся с этой версии игры).</div>`
+    `<div class="hint">Высота столбца: сделанные задачи. Наведи на день, чтобы увидеть таймер, золото и урон.</div>`
   );
 }
 

@@ -16,9 +16,28 @@ const GATE_FALL_MS = 2500;
 
 type Outcome = { kind: 'victory' | 'defeat'; id: string; name: string };
 
+/** Уже показанные экраны помнятся в браузере: после перезагрузки они не повторяются. */
+const SEEN_KEY = 'taskcraft.outcomes';
+
+function loadSeen(): Set<string> {
+  try {
+    return new Set(JSON.parse(localStorage.getItem(SEEN_KEY) ?? '[]') as string[]);
+  } catch {
+    return new Set();
+  }
+}
+
+function saveSeen(seen: Set<string>) {
+  try {
+    localStorage.setItem(SEEN_KEY, JSON.stringify([...seen].slice(-50)));
+  } catch {
+    /* без localStorage экран может повториться после перезагрузки */
+  }
+}
+
 /** gateHp: здоровье врат проекта, которое сейчас видно на карте. */
 export function watchOutcomes(store: Store, gateHp: (id: string) => number) {
-  const seen = new Set<string>();
+  const seen = loadSeen();
   const queue: Outcome[] = [];
   let open = false;
   let retry = 0;
@@ -52,6 +71,7 @@ export function watchOutcomes(store: Store, gateHp: (id: string) => number) {
           continue;
         }
         seen.add(key);
+        saveSeen(seen);
         if (now - at < FRESH_MS) queue.push({ kind, id: p.id, name: p.name });
       }
     }

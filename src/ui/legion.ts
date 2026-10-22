@@ -4,7 +4,7 @@
 
 import { DEMONS } from '../state/config';
 import { addDays, allDemons, daysBetween, demonBaseId, demonRank, localDay, rescheduleCost } from '../state/economy';
-import type { Store } from '../state/store';
+import { plural, type Store } from '../state/store';
 import type { Task } from '../state/types';
 import { openModal } from './modal';
 
@@ -55,7 +55,7 @@ export function openLegion(store: Store, awayDays = 0, onLater: () => void = () 
   };
 
   const captured = groups.filter((g) => g.p?.capturedAt).map((g) => `«${esc(g.p!.name)}»`);
-  const baseWord = groups.length === 1 ? 'базы' : 'баз';
+  const baseWord = plural(groups.length, 'базы', 'баз', 'баз');
   const lead = awayDays
     ? `Тебя не было ${awayDays} дн. Легион не ждал: демонов ${demons.length} у ${groups.length} ${baseWord}.`
     : `Демонов ${demons.length} у ${groups.length} ${baseWord}.`;

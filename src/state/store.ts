@@ -2,14 +2,19 @@
 // читают состояние и подписываются на изменения.
 
 import { BALANCE, DEMONS, DREADLORDS, HERO_KINDS, UNITS } from './config';
+import { repairState } from './repair';
+import { assignColors } from './colors';
+import { gameIdOf } from '../storage/merge';
 import {
   activeTaskOf,
   addDays,
+  daysBetween,
   currentShift,
   demonBaseId,
   demonRank,
   demonsAt,
   gameDay,
+  gameDayAt,
   nextDue,
   squadOf,
   weekStart,
@@ -97,7 +102,10 @@ export class Store {
   /** Старые сохранения: проекты без отметки активности считаем живыми с этого момента. */
   private migrate() {
     const now = Date.now();
-    const s = this.state;
+    // Битое или неполное сохранение чинится, а не роняет игру на каждом тике.
+    const s = (this.state = repairState(this.state, now));
+    s.gameId ??= gameIdOf(s);
+    assignColors(s);
     // Игра, начатая до лобби, уже настроена: обучение пройдено, есть проекты или задачи.
     if (!s.setupDone && (s.tutorialDone || s.projects.length > 1 || s.tasks.length)) s.setupDone = s.tutorialDone ?? now;
     for (const p of this.state.projects) p.lastActivityAt ??= now;
@@ -141,6 +149,7 @@ export class Store {
         createdAt: now,
       });
     }
+    assignColors(s);
     this.state = s;
     this.events = [];
     this.migrate();
@@ -229,15 +238,26 @@ export class Store {
       this.say('Задачи 4 уровня ведут грифоны: нужно грифонье гнездо (замок).', 'warn');
       return;
     }
+    if (this.project(projectId)?.frozen) {
+      // Задача остаётся во входящих с проектом и уровнем: наймётся после расконсервации.
+      t.projectId = projectId;
+      t.level = level;
+      this.say('База законсервирована: юнит не нанят, задача ждёт во входящих. Расконсервируй базу, чтобы нанимать.', 'warn');
+      if (emit) this.emit();
+      return;
+    }
     const wasInbox = t.status === 'inbox';
     t.projectId = projectId;
     this.touch(projectId);
     t.level = level;
     if (wasInbox) {
       t.status = 'hired';
-      const repaid = this.gainPlanLumber(BALANCE.hireLumber);
+      // Дерево за найм один раз за задачу: вернуть её во входящие и нанять снова ничего не даёт.
+      const lumber = t.hireLumberPaid ? 0 : BALANCE.hireLumber;
+      t.hireLumberPaid = true;
+      const repaid = lumber ? this.gainPlanLumber(lumber) : 0;
       this.say(
-        `${UNITS[level].name} готов к бою. +${BALANCE.hireLumber} дерева за план` + (repaid ? `, из них ${repaid} в счёт долга` : ''),
+        `${UNITS[level].name} готов к бою.` + (lumber ? ` +${lumber} дерева за план` : '') + (repaid ? `, из них ${repaid} в счёт долга` : ''),
         'gold',
         'hire',
         level,
@@ -459,6 +479,11 @@ export class Store {
     if (!t || !isOpen(t)) return;
     if ((t.due ?? null) === due) return;
     const wasDemon = isDemon(t);
+    // Перенос на прошедший день демона не прогонит: дерево за такой перенос не берётся.
+    if (wasDemon && due && due < localDay()) {
+      this.say('Демон отступит, только если перенести срок на сегодня или позже.', 'warn');
+      return;
+    }
     if (isPostpone(t, due)) {
       const debt = this.payLumber(rescheduleCost(t));
       this.say(
@@ -610,6 +635,7 @@ export class Store {
       createdAt: Date.now(),
     };
     s.projects.push(p);
+    assignColors(s);
     if (frozen)
       this.say(
         `Заложена база «${p.name}», но в игре уже ${BALANCE.activeBasesLimit} баз: она законсервирована. Расконсервируй её, когда освободится место.`,
@@ -631,13 +657,25 @@ export class Store {
       p.slot = freeSlot({ ...this.state, projects: this.state.projects.filter((x) => x !== p) }, p.sphereId);
     }
     if (patch.kind) p.kind = patch.kind;
-    if (patch.hp !== undefined && clampHp(patch.hp) !== p.fortressMaxHp) {
+    let won = false;
+    if (patch.hp !== undefined && p.wonAt && p.fortressHp === 0) {
+      // Миссия уже выиграна: ✎ ставит новую крепость с полным здоровьем, хоть того же размера.
+      p.fortressMaxHp = clampHp(patch.hp);
+      p.fortressHp = p.fortressMaxHp;
+      delete p.wonAt;
+    } else if (patch.hp !== undefined && clampHp(patch.hp) !== p.fortressMaxHp) {
       // Нанесённый урон сохраняется: меняется только то, сколько ещё осталось до победы.
       const dealt = p.fortressMaxHp - p.fortressHp;
       p.fortressMaxHp = clampHp(patch.hp);
       p.fortressHp = Math.max(0, p.fortressMaxHp - dealt);
+      // Крепость стала меньше уже нанесённого урона: она пала, это победа.
+      if (p.fortressHp === 0 && p.fortressMaxHp > 0 && !p.wonAt) {
+        p.wonAt = Date.now();
+        won = true;
+      }
     }
-    this.say(`Проект «${p.name}» обновлён.`);
+    if (won) this.say(`Вражеская крепость проекта «${p.name}» пала! Миссия выиграна. Проект можно оставить, отправить в зал славы или поставить новую крепость (✎).`, 'win');
+    else this.say(`Проект «${p.name}» обновлён.`);
     this.emit();
   }
 
@@ -820,7 +858,7 @@ export class Store {
   /** Сделана ли сегодня уже задача, которая могла бы быть лягушкой. */
   private bigDoneToday(day: string): boolean {
     return this.state.tasks.some(
-      (t) => t.status === 'done' && (t.level ?? 0) >= SKILL.frogMinLevel && !!t.doneAt && localDay(new Date(t.doneAt)) === day,
+      (t) => t.status === 'done' && (t.level ?? 0) >= SKILL.frogMinLevel && !!t.doneAt && gameDayAt(this.state, t.doneAt) === day,
     );
   }
 
@@ -1117,7 +1155,7 @@ export class Store {
       this.say(`Ратуша стала ${c.id === 'keep' ? 'крепостью' : 'замком'}! ${TECH[c.id].gives}`, 'win', 'fortress');
     } else if (c.id === 'armor' || c.id === 'weapons') {
       s.smith = { ...s.smith, [c.id]: (s.smith?.[c.id] ?? 0) + 1 };
-      this.say(`Кузница: ${t?.name ?? ''} готово. ${t?.gives ?? ''}`, 'win', 'jobdone');
+      this.say(`Кузница улучшена: ${t?.name ?? ''}. ${t?.gives ?? ''}`, 'win', 'jobdone');
     } else {
       s.buildings = { ...s.buildings, [c.id]: true };
       this.say(`Построено: ${TECH[c.id].name}. ${TECH[c.id].gives}`, 'win', 'jobdone');
@@ -1149,13 +1187,21 @@ export class Store {
       const t = this.task(id);
       return !!t && isOpen(t);
     });
-    const before = new Set(s.dayPlan?.day === day ? s.dayPlan.taskIds : []);
-    const added = ids.filter((id) => !before.has(id)).length;
-    s.dayPlan = { day, taskIds: ids };
-    const lumber = added * BALANCE.planLumberPerTask;
+    const today = s.dayPlan?.day === day ? s.dayPlan : null;
+    // Дерево за задачу даётся раз в день: снять её с плана и отметить снова ничего не даёт.
+    const paid = new Set(today?.paidIds ?? today?.taskIds ?? []);
+    const added = ids.filter((id) => !paid.has(id));
+    // Сделанные задачи окно не показывает, но из плана они не выпадают.
+    const kept = (today?.taskIds ?? []).filter((id) => {
+      const t = this.task(id);
+      return !!t && !isOpen(t) && !ids.includes(id);
+    });
+    s.dayPlan = { day, taskIds: [...kept, ...ids], paidIds: [...paid, ...added] };
+    const total = s.dayPlan.taskIds.length;
+    const lumber = added.length * BALANCE.planLumberPerTask;
     const repaid = lumber ? this.gainPlanLumber(lumber) : 0;
     this.say(
-      `План на день: ${ids.length} ${plural(ids.length, 'задача', 'задачи', 'задач')}.` + (lumber ? ` +${lumber} дерева за план` : '') + (repaid ? `, из них ${repaid} в счёт долга` : ''),
+      `План на день: ${total} ${plural(total, 'задача', 'задачи', 'задач')}.` + (lumber ? ` +${lumber} дерева за план` : '') + (repaid ? `, из них ${repaid} в счёт долга` : ''),
       'gold',
       lumber ? 'hire' : undefined,
     );
@@ -1169,6 +1215,8 @@ export class Store {
     const shift = currentShift(s);
     if (shift === 'day') return this.say('Второе дыхание бывает после работы.', 'warn');
     if (s.secondWindDay === day) return this.say('Второе дыхание уже было сегодня.', 'warn');
+    // При полной мане попытка дня не тратится.
+    if (s.hero.mana >= s.hero.maxMana) return this.say('Мана и так полная: второе дыхание пригодится позже.', 'warn');
     s.secondWindDay = day;
     const before = s.hero.mana;
     s.hero.mana = Math.min(s.hero.maxMana, s.hero.mana + BALANCE.secondWindMana);
@@ -1282,7 +1330,8 @@ export class Store {
     const sp = dreadlordSphere(s);
     if (!sp) {
       delete s.dreadlord;
-      this.say('Легион не нашёл слабой земли: все сферы у цели. Повелитель ужаса в этом месяце не придёт.', 'win');
+      if (s.spheres.every((x) => x.score >= x.target)) this.say('Легион не нашёл слабой земли: все сферы у цели. Повелитель ужаса в этом месяце не придёт.', 'win');
+      else this.say('В отстающих землях нет баз в игре, Повелителю ужаса некого осаждать. В этом месяце он не придёт.');
       return;
     }
     const gap = sp.target - sp.score;
@@ -1370,12 +1419,22 @@ export class Store {
     const at = Math.min(now, guardEnd - 1);
     s.lastTick = now;
 
+    // Сначала догоняем прошлый отрезок (работа и добыча до ухода), потом утро: иначе
+    // рассвет восстановил бы ману, а вчерашняя работа списала бы её уже после рассвета.
+    this.catchUp(dt, at, now);
     this.dawn(now);
     this.legion(now);
     this.retake();
     this.expireSpells(now);
     this.rotateDuty(new Date(now));
 
+    // Тик не считается действием игрока: Gist по нему не пишется, интерфейс перерисовывается.
+    this.emit(false);
+  }
+
+  /** Добыча, таймер работы, стройка и мана за отрезок dt, который закончился в момент at. */
+  private catchUp(dt: number, at: number, now: number) {
+    const s = this.state;
     const date = new Date(at);
     const minutes = dt / 60_000;
     let gold = 0;
@@ -1419,9 +1478,6 @@ export class Store {
 
     // Герои в запасе отдыхают на алтаре и восстанавливают ману, как на привале.
     for (const r of s.reserve ?? []) if (!r.fallenAt) r.mana = Math.min(r.maxMana, r.mana + (BALANCE.manaBreakRegenPerHour * dt) / 3_600_000);
-
-    // Тик не считается действием игрока: Gist по нему не пишется, интерфейс перерисовывается.
-    this.emit(false);
   }
 
   /**
@@ -1437,6 +1493,8 @@ export class Store {
     const firstTime = !s.lastLegionDay;
     if (s.lastLegionDay === today) return;
     if (!firstTime && d.getHours() * 60 + d.getMinutes() < wh * 60 + wm) return;
+    // Сколько ночей прошло с прошлого подсчёта: после отсутствия скверна горит за каждую.
+    const nights = s.lastLegionDay ? Math.max(1, daysBetween(s.lastLegionDay, today)) : 1;
     s.lastLegionDay = today;
     this.collecting = [];
 
@@ -1444,7 +1502,7 @@ export class Store {
     const grown: string[] = [];
     // Первые дни новой игры и мирный режим: Легион спит. Сроки, прошедшие во сне, считаются с пробуждения.
     const asleep = legionAsleep(s, now);
-    const woke = s.startedAt && s.settings.legion !== 'burning' ? localDay(new Date(s.startedAt + BALANCE.quietDays * 86_400_000)) : '';
+    const woke = s.startedAt && s.settings.legion !== 'burning' ? addDays(localDay(new Date(s.startedAt)), BALANCE.quietDays) : '';
     for (const t of s.tasks) {
       if (!isOpen(t) || !t.due || t.due >= today) continue;
       // Законсервированный проект Легион не трогает. Сроки, прошедшие за паузу, считаются со дня расконсервации.
@@ -1461,7 +1519,7 @@ export class Store {
       t.demonRank = rank;
     }
     const portal = portalSize(s, now);
-    if (portal) this.say(`У главной ратуши открыт портал Легиона: ${portal} неразобранных задач старше ${BALANCE.portalScrollDays} дней. Разбери входящие.`, 'warn', fresh ? undefined : 'legion');
+    if (portal) this.say(`У главной ратуши открыт портал Легиона: ${portal} ${plural(portal, 'неразобранная задача', 'неразобранные задачи', 'неразобранных задач')} старше ${BALANCE.portalScrollDays} дней. Разбери входящие.`, 'warn', fresh ? undefined : 'legion');
     if (fresh) this.say(`Ночью пришёл Пылающий Легион: ${fresh} ${plural(fresh, 'новый демон', 'новых демона', 'новых демонов')}.`, 'warn', 'legion');
     for (const g of grown) this.say(`Демон вырос. ${g}`, 'warn');
     // Метеоры: предупреждение о сроке большой задачи.
@@ -1473,8 +1531,10 @@ export class Store {
     for (const p of s.projects) {
       if (!isBlighted(s, p, now)) continue;
       const before = p.damage ?? 0;
-      p.damage = Math.min(100, before + BALANCE.blightDamagePerDay);
-      if (before === 0) this.say(`По земле проекта «${p.name}» ползёт скверна: ${idleDays(s, p, now)} дней без движения. Здания загорелись.`, 'warn');
+      // Горит каждую ночь скверны, но не больше ночей, чем она уже ползёт по земле.
+      const burning = Math.min(nights, idleDays(s, p, now) - BALANCE.blightDays + 1);
+      p.damage = Math.min(100, before + BALANCE.blightDamagePerDay * Math.max(1, burning));
+      if (before === 0) this.say(`По земле проекта «${p.name}» ползёт скверна: ${idleDays(s, p, now)} ${plural(idleDays(s, p, now), 'день', 'дня', 'дней')} без движения. Здания загорелись.`, 'warn');
     }
     if (fresh || grown.length || s.projects.some((p) => isBlighted(s, p, now))) {
       for (const p of s.projects) {
@@ -1491,7 +1551,7 @@ export class Store {
       p.capturedAt = now;
       p.damage = 100;
       this.say(
-        `Легион захватил базу «${p.name}»: ${demons.some((t) => demonRank(t, today) === 4) ? 'пришёл Инфернал' : `${demons.length} демонов у стен`}. Рабочие бежали в главную ратушу, здания в руинах. Разберись со всеми её демонами, чтобы отбить базу.`,
+        `Легион захватил базу «${p.name}»: ${demons.some((t) => demonRank(t, today) === 4) ? 'пришёл Инфернал' : `${demons.length} ${plural(demons.length, 'демон', 'демона', 'демонов')} у стен`}. Рабочие бежали в главную ратушу, здания в руинах. Разберись со всеми её демонами, чтобы отбить базу.`,
         'warn',
         'defeat',
       );
@@ -1509,7 +1569,8 @@ export class Store {
   /** Рассвет: каждое утро мана героя полностью восстанавливается. */
   private dawn(now: number) {
     const d = new Date(now);
-    const today = d.toISOString().slice(0, 10);
+    // День по местному времени игрока, как у Легиона, а не по UTC.
+    const today = localDay(d);
     const [wh, wm] = this.state.settings.wakeUp.split(':').map(Number);
     if (today !== this.state.lastDawn && d.getHours() * 60 + d.getMinutes() >= wh * 60 + wm) {
       this.state.lastDawn = today;

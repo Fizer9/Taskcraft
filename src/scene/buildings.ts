@@ -145,6 +145,7 @@ export class MainBuildings {
     private scene: Scene,
     private parent: TransformNode,
     private baseId: string,
+    private team: string,
   ) {}
 
   setLibrary(lib: ModelLibrary, onMesh: (m: AbstractMesh) => void) {
@@ -200,7 +201,7 @@ export class MainBuildings {
     // Модель здания вместо заглушки: фигуры прячутся, их место занимает WC3.
     if (!this.models.has(id)) {
       const [name, size, anim] = MODELS[id];
-      const inst = this.lib.create(name, size);
+      const inst = this.lib.create(name, size, this.team);
       if (inst) {
         for (const m of node.getChildMeshes(true)) m.setEnabled(false);
         inst.root.parent = node;
@@ -216,7 +217,7 @@ export class MainBuildings {
     if (this.decor.has(id) || !items) return;
     const made: ModelInstance[] = [];
     for (const [model, at, rot, scale] of items) {
-      const inst = this.lib.create(model, scale);
+      const inst = this.lib.create(model, scale, this.team);
       if (!inst) continue;
       inst.root.parent = node;
       inst.root.position.copyFrom(at);

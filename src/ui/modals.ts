@@ -5,11 +5,11 @@ import { forgetToken, getGistId, getPassword, hasStoredToken, loadToken, saveTok
 import { BALANCE, LEGION_MODES, TUNING_STEPS, UNITS } from '../state/config';
 import { reward, tuning } from '../state/economy';
 import { createInitialState } from '../state/seed';
-import { techOf } from '../state/tech';
-import type { LegionMode, Tuning } from '../state/types';
+import { hasBuilding, techOf } from '../state/tech';
+import type { GameState, LegionMode, Tuning } from '../state/types';
 import type { Store } from '../state/store';
-import type { Sync } from '../storage/sync';
-import { openModal } from './modal';
+import { saveBackup, type ForeignChoice, type Sync } from '../storage/sync';
+import { ask, openModal } from './modal';
 import { sounds } from '../audio/sound';
 import { exportSave, importSave } from './backup';
 import { NOTIFY_KINDS, notifyPrefs, notifySupported, setNotify, type NotifyKind } from './notify';
@@ -56,7 +56,7 @@ export function openSettings(store: Store, sync: Sync) {
     </div>
     <label>Рабочие дни</label>
     <div style="display:flex;gap:10px;flex-wrap:wrap">${days
-      .map((d, i) => `<label style="margin:0;color:var(--text)"><input type="checkbox" name="day" value="${i + 1}" style="width:auto"${st.workDays.includes(i + 1) ? ' checked' : ''}> ${d}</label>`)
+      .map((d, i) => `<label class="check" style="margin:0"><input type="checkbox" name="day" value="${i + 1}"${st.workDays.includes(i + 1) ? ' checked' : ''}> ${d}</label>`)
       .join('')}</div>
 
     <h3 style="margin-top:18px">Звук</h3>
@@ -83,7 +83,7 @@ export function openSettings(store: Store, sync: Sync) {
       notifySupported()
         ? NOTIFY_KINDS.map(
             (k) =>
-              `<label style="margin:4px 0;color:var(--text)"><input type="checkbox" name="notify" value="${k.id}" style="width:auto"${notifyPrefs()[k.id] && Notification.permission === 'granted' ? ' checked' : ''}> ${k.name}</label>`,
+              `<label class="check" style="margin:4px 0"><input type="checkbox" name="notify" value="${k.id}"${notifyPrefs()[k.id] && Notification.permission === 'granted' ? ' checked' : ''}> ${k.name}</label>`,
           ).join('') +
           `<div class="hint notify-hint">${notifyHint(Notification.permission)}</div>`
         : '<div class="hint">Этот браузер не умеет показывать уведомления.</div>'
@@ -105,7 +105,7 @@ export function openSettings(store: Store, sync: Sync) {
       <ol>
         <li>На github.com открой свой аватар → <b>Settings</b> → внизу слева <b>Developer settings</b> → <b>Personal access tokens</b> → <b>Fine-grained tokens</b> → <b>Generate new token</b>.</li>
         <li>Назови токен (например, Taskcraft), срок поставь подольше. В <b>Permissions</b> → <b>Account permissions</b> выбери <b>Gists: Read and write</b>, больше ничего не нужно. Нажми <b>Generate token</b> и скопируй его (github_pat_…).</li>
-        <li>Вставь токен в поле ниже, поле id гиста оставь пустым, придумай пароль и нажми «Сохранить». Игра создаст секретный гист и будет сохраняться в него сама.</li>
+        <li>Вставь токен в поле ниже, поле id гиста оставь пустым, в поле «Пароль» введи тот же пароль, которым входишь в игру, и нажми «Сохранить». Игра создаст секретный гист и будет сохраняться в него сама.</li>
         <li>На другом устройстве вставь тот же токен, id гиста отсюда и тот же пароль.</li>
       </ol>
       <div>Токен хранится в браузере только зашифрованным твоим паролем. Гист секретный: его видит только тот, у кого есть ссылка.</div>
@@ -115,7 +115,7 @@ export function openSettings(store: Store, sync: Sync) {
     <label>Id гиста</label>
     <input name="gistId" value="${esc(getGistId() ?? '')}" placeholder="Пусто: создать новый секретный гист">
     <label>Пароль</label>
-    <input type="password" name="password" placeholder="Шифрует токен и открывает ассеты WC3">
+    <input type="password" name="password" placeholder="Тот же, что при входе в игру; пусто: текущий">
     <div class="hint">${rememberedPassword() ? 'Пароль запомнен в этом браузере, вход без ввода. <span class="group-btn" data-a="forget">Забыть</span>' : 'Пароль не сохраняется. Его нужно вводить при запуске, если не поставить «Запомнить» на входе.'}</div>
     <div class="err"></div>
     <div class="actions">
@@ -125,7 +125,7 @@ export function openSettings(store: Store, sync: Sync) {
       <button class="btn" data-action="open-council">Совет земель</button>
       <button class="btn" data-action="open-quests">Задания</button>
       <button class="btn" data-action="open-hall">Зал славы</button>
-      <button class="btn" data-action="open-vault">Хранилище тайн</button>
+      ${hasBuilding(store.state, 'vault') ? '<button class="btn" data-action="open-vault">Хранилище тайн</button>' : '<button class="btn" disabled title="Хранилище тайн строится в замке">Хранилище тайн: построй в замке</button>'}
       <button class="btn" data-action="open-tutorial">Как играть</button>
       ${connected ? '<button class="btn" data-a="disconnect">Отключить Gist</button>' : ''}
       <button class="btn" data-a="cancel">Закрыть</button>
@@ -170,12 +170,17 @@ export function openSettings(store: Store, sync: Sync) {
   });
   root.querySelector('[data-a="reset"]')!.addEventListener('click', () => {
     if (!confirm('Начать новую игру? Весь прогресс в этом браузере будет стёрт.')) return;
+    saveBackup(store.state);
     const fresh = createInitialState();
     fresh.rev = store.state.rev; // чтобы Gist принял новую игру как следующую ревизию
     store.replace(fresh);
     close();
   });
   root.querySelector('[data-a="save"]')!.addEventListener('click', async () => {
+    if ((val('wakeUp') || st.wakeUp) === (val('bedtime') || st.bedtime)) {
+      err.textContent = 'Подъём и отбой не могут совпадать.';
+      return;
+    }
     st.dayStart = val('dayStart') || st.dayStart;
     st.dayEnd = val('dayEnd') || st.dayEnd;
     st.wakeUp = val('wakeUp') || st.wakeUp;
@@ -189,7 +194,13 @@ export function openSettings(store: Store, sync: Sync) {
     const password = val('password') || getPassword() || '';
     if (token) {
       if (!password) {
-        err.textContent = 'Придумай пароль: им шифруется токен.';
+        err.textContent = 'Введи пароль: им шифруется токен.';
+        return;
+      }
+      // На сайте с зашифрованной графикой тот же пароль открывает и её, и токен при входе:
+      // другой пароль запер бы игру при следующем запуске.
+      if ((await encryptedAssetsAvailable()) && !(await checkAssetPassword(password))) {
+        err.textContent = 'Пароль должен совпадать с паролем входа в игру: при запуске он открывает и графику, и токен.';
         return;
       }
       err.textContent = 'Подключаюсь…';
@@ -246,22 +257,24 @@ export async function unlockOnStart(sync: Sync, required = false): Promise<void>
   const what = [needToken && 'сохранение из Gist', needAssets && 'графику WC3'].filter(Boolean).join(' и ');
 
   // Проверяет пароль, открывает токен и подключает Gist. Ошибка значит «не пустили».
+  // Не пускает только неверный пароль: игра всегда есть в этом браузере, поэтому сбой
+  // Gist (нет сети, истёк токен, GitHub не отвечает) пускает в игру с ошибкой синхронизации.
   const unlock = async (pass: string) => {
     if (needAssets && !(await checkAssetPassword(pass))) throw new Error('Неверный пароль.');
-    const token = needToken
-      ? await loadToken(pass).catch(() => {
-          throw new Error('Неверный пароль.');
-        })
-      : null;
+    let token: string | null = null;
+    if (needToken) {
+      token = await loadToken(pass).catch(() => null);
+      // Графика открылась, а токен нет: он зашифрован другим паролем. Пускаем без Gist.
+      if (!token && !needAssets) throw new Error('Неверный пароль.');
+      if (!token) sync.report('Токен Gist зашифрован другим паролем. Введи токен заново в настройках.');
+    }
     setPassword(pass);
-    // Без сети Gist недоступен: игра идёт из локального сохранения, а синхронизация
-    // догонит, когда сеть вернётся. Неверный токен или чужой Gist по-прежнему ошибка.
     if (token)
       await sync
         .connect(token, getGistId())
         .then(setGistId)
-        .catch((ex) => {
-          if (navigator.onLine && !(ex instanceof TypeError)) throw ex;
+        .catch(() => {
+          /* connect уже показал ошибку в строке синхронизации */
         });
   };
 
@@ -308,4 +321,22 @@ export async function unlockOnStart(sync: Sync, required = false): Promise<void>
       }
     });
   });
+}
+
+/** В Gist другая игра (другое устройство начало новую или указан чужой Gist): что оставить. */
+export function chooseForeignGame(local: GameState, remote: GameState): Promise<ForeignChoice> {
+  const open = (s: GameState) => s.tasks.filter((t) => t.status !== 'done' && t.status !== 'cancelled').length;
+  const bases = (s: GameState) => s.projects.length - 1;
+  const when = new Date(remote.updatedAt).toLocaleString('ru-RU', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });
+  return ask(
+    'В Gist другая игра',
+    `<p>В Gist: игра от ${when}, баз ${bases(remote)}, открытых задач ${open(remote)}.</p>` +
+      `<p>Здесь: баз ${bases(local)}, открытых задач ${open(local)}.</p>` +
+      '<p>Какую оставить? Вторая будет заменена. Игра этого браузера при загрузке из Gist сохранится в резервную копию.</p>',
+    [
+      { label: 'Загрузить из Gist', value: 'remote' },
+      { label: 'Записать эту в Gist', value: 'local' },
+      { label: 'Отмена', value: 'cancel' },
+    ],
+  ) as Promise<ForeignChoice>;
 }
