@@ -1539,7 +1539,9 @@ body.art-btn-atlas .lobby-hero-icon > span { display: none; }
 #objectives button:hover { background: rgba(255, 211, 77, 0.1); }
 #objectives .obj-title { margin: 6px 0 2px; padding-top: 4px; border-top: 1px solid rgba(201, 162, 74, 0.3); color: var(--gold); font-size: 12px; letter-spacing: 0.05em; text-transform: uppercase; }
 #objectives .obj-fronts { display: grid; gap: 2px; }
-#objectives .obj-front { display: grid; grid-template-columns: minmax(0, 1fr) 54px auto auto; gap: 6px; padding: 2px 4px; }
+#objectives .obj-front { display: grid; grid-template-columns: 10px minmax(0, 1fr) 54px auto auto; gap: 6px; padding: 2px 4px; }
+/* Квадратик цвета базы: тем же цветом база на карте и на мини-карте. */
+#objectives .obj-color { display: block; width: 10px; height: 10px; border: 1px solid #000; box-sizing: border-box; }
 #objectives .obj-front span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text); }
 #objectives .obj-front b { font-weight: normal; color: var(--muted); font-size: 12px; white-space: nowrap; }
 #objectives .obj-front em { font-style: normal; color: #7dff5a; font-size: 12px; }
@@ -1547,7 +1549,7 @@ body.art-btn-atlas .lobby-hero-icon > span { display: none; }
 #objectives .obj-front.lost span, #objectives .obj-front.lost b { color: #ff6b4a; }
 #objectives .obj-bar { display: block; height: 6px; background: #1a0f0c; border: 1px solid #000; }
 #objectives .obj-bar > i { display: block; height: 100%; background: linear-gradient(#ff5a3a, #a3200f); }
-#objectives .obj-front.lost { grid-template-columns: minmax(0, 1fr) auto auto; }
+#objectives .obj-front.lost { grid-template-columns: 10px minmax(0, 1fr) auto auto; }
 @media (max-width: 700px), (max-height: 500px) {
   #objectives { top: 40px; right: 6px; width: min(230px, calc(100vw - 12px)); font-size: 12px; }
 }

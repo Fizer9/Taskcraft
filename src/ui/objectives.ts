@@ -1,10 +1,11 @@
 // Панель целей, как «Главные задачи» миссии в WC3: всегда на экране справа сверху.
-// Лестница целей день → неделя → жизнь и проекты рядом как фронты: здоровье вражеской
+// Лестница целей день → неделя → жизнь и проекты с цветом базы: здоровье вражеской
 // крепости и демоны у стен. Щелчок по строке открывает нужное окно или ведёт камеру к базе.
 
 import { activeDreadlord, activeTaskOf, demonsAt, gameDay, onMap, portalSize, weekStart } from '../state/economy';
 import { plural, type Store } from '../state/store';
 import { MAIN_HALL_ID, type Project } from '../state/types';
+import { projectColor } from '../state/colors';
 import type { World } from '../scene/world';
 import { openPlanning, openWeek } from './day';
 import { openCouncil } from './council';
@@ -33,7 +34,7 @@ export class Objectives {
   constructor(
     private store: Store,
     private world: World,
-    /** Щелчок по фронту: выбрать базу. */
+    /** Щелчок по проекту: выбрать базу. */
     private onFront: (id: string) => void,
     /** Открыть казарму базы: нанять юнита. */
     private onHire: (id: string) => void,
@@ -66,7 +67,7 @@ export class Objectives {
       const s = this.store.state;
       const id = (s.projects.find((p) => p.id !== MAIN_HALL_ID && onMap(p) && !p.capturedAt) ?? s.projects[0]).id;
       this.onFront(id);
-      this.world.ping(id);
+      this.world.focusBase(id);
       this.onHire(id);
     } else if (go === 'day') openPlanning(this.store);
     else if (go === 'week') openWeek(this.store);
@@ -75,7 +76,7 @@ export class Objectives {
     else if (go.startsWith('base:')) {
       const id = go.slice(5);
       this.onFront(id);
-      this.world.ping(id);
+      this.world.focusBase(id);
     }
   }
 
@@ -115,7 +116,7 @@ export class Objectives {
       row('life', '☠', esc(dl.name), `${dl.hp}/${dl.maxHp}${sp ? `, ${esc(sp.name)}` : ''}`, false, true);
     }
 
-    // ---------- Фронты: базы проектов и их крепости ----------
+    // ---------- Проекты: базы и их крепости ----------
     const fronts: string[] = [];
     const bases = s.projects.filter((p) => p.id !== MAIN_HALL_ID && onMap(p) && p.fortressMaxHp > 0);
     const weight = (p: Project) => (activeTaskOf(s, p.id) ? 1000 : 0) + demonsAt(s, p.id, day).length * 10 + (1 - this.world.fortressShown(p.id) / p.fortressMaxHp);
@@ -126,7 +127,7 @@ export class Objectives {
       const state = p.capturedAt ? 'захвачена' : shown <= 0 ? 'крепость пала' : `${shown}/${p.fortressMaxHp}`;
       fronts.push(
         `<button class="obj-front${p.capturedAt ? ' lost' : ''}${shown <= 0 ? ' won' : ''}" data-go="base:${p.id}" title="${esc(p.name)}: здоровье вражеской крепости${demons ? `, демонов у стен ${demons}` : ''}">` +
-          `<span>${fight ? '⚔ ' : ''}${esc(p.name)}</span>` +
+          `<i class="obj-color" style="background:${projectColor(p)}"></i><span>${fight ? '⚔ ' : ''}${esc(p.name)}</span>` +
           `<i class="obj-bar"><i style="width:${((Math.max(0, shown) / p.fortressMaxHp) * 100).toFixed(0)}%"></i></i>` +
           `<b>${state}</b>${demons ? `<em>☠${demons}</em>` : ''}</button>`,
       );
@@ -135,14 +136,14 @@ export class Objectives {
     const portal = portalSize(s);
     if (hallDemons || portal)
       fronts.push(
-        `<button class="obj-front lost" data-go="base:${MAIN_HALL_ID}"><span>Главная ратуша</span><b>${portal ? 'портал Легиона' : ''}</b>${hallDemons ? `<em>☠${hallDemons}</em>` : ''}</button>`,
+        `<button class="obj-front lost" data-go="base:${MAIN_HALL_ID}"><i class="obj-color" style="background:${projectColor({ color: 0 })}"></i><span>Главная ратуша</span><b>${portal ? 'портал Легиона' : ''}</b>${hallDemons ? `<em>☠${hallDemons}</em>` : ''}</button>`,
       );
     if (!bases.length) fronts.push(`<button class="obj-row warn" data-go="bases"><i>🏰</i><span>Заложи первую базу</span><b>Проекты</b></button>`);
 
     this.set(
       `<button class="obj-head" data-go="fold" title="Свернуть или развернуть"><span>Цели</span><i>▾</i></button>` +
         `<div class="obj-body"><div class="obj-ladder">${rows.join('')}</div>` +
-        `<div class="obj-title">Фронты</div><div class="obj-fronts">${fronts.join('')}</div></div>`,
+        `<div class="obj-title">Проекты</div><div class="obj-fronts">${fronts.join('')}</div></div>`,
     );
   }
 
